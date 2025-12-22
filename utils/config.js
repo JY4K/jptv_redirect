@@ -1,6 +1,6 @@
 export default {
   // 当前版本号 (手动维护，避免读取 package.json 导致崩溃)
-  currentVersion: '1.2.0',
+  currentVersion: '1.3.0',
 
   // 管理员 Token，部署时在 Vercel 环境变量设置
   adminToken: process.env.ADMIN_TOKEN || '123456',
@@ -12,7 +12,7 @@ export default {
   logoBaseUrl: 'https://gcore.jsdelivr.net/gh/fanmingming/live/tv/',
 
   // 项目开源地址
-  projectUrl: 'https://github.com/JY4K/IPTV_Redirect',
+  projectUrl: 'https://github.com/JY4K/jptv_redirect',
 
   // 版本检测地址
   repoApiUrl: 'https://api.github.com/repos/imput/iptv-pro/releases/latest',

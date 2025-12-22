@@ -1,0 +1,444 @@
+[
+  {
+    "group": "🇨🇳 央视频道",
+    "channels": [
+      {
+        "name": "CCTV1 综合",
+        "id": "CCTV1",
+        "logo": "CCTV1",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv1hd.m3u8",
+            "https://cdn6.101.qzz.io/163189/cctv1",
+            "http://222.85.198.92:8000/hls/40/index.m3u8",
+            "http://222.85.198.92:8000/hls/1/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV2 财经",
+        "id": "CCTV2",
+        "logo": "CCTV2",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv2hd.m3u8",
+            "http://222.85.198.92:8000/hls/1/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV3 综艺",
+        "id": "CCTV3",
+        "logo": "CCTV3",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv3hd.m3u8",
+            "http://222.85.198.92:8000/hls/3/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV4 中文国际",
+        "id": "CCTV4",
+        "logo": "CCTV4",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv4hd.m3u8",
+            "http://222.85.198.92:8000/hls/4/index.m3u8"
+        ]
+      },
+      {
+        "name": "CCTV5 体育",
+        "id": "CCTV5",
+        "logo": "CCTV5",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv5hd.m3u8",
+            "http://222.85.198.92:8000/hls/5/index.m3u8"
+        ]
+      },
+      {
+        "name": "CCTV5+ 体育赛事",
+        "id": "CCTV5Plus",
+        "logo": "CCTV5+",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv5phd.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV6 电影",
+        "id": "CCTV6",
+        "logo": "CCTV6",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv6hd.m3u8",
+            "http://222.85.198.92:8000/hls/6/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV7 国防军事",
+        "id": "CCTV7",
+        "logo": "CCTV7",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv7hd.m3u8",
+            "http://222.85.198.92:8000/hls/7/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV8 电视剧",
+        "id": "CCTV8",
+        "logo": "CCTV8",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv8hd.m3u8",
+            "http://222.85.198.92:8000/hls/8/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV9 纪录",
+        "id": "CCTV9",
+        "logo": "CCTV9",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv9hd.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV10 科教",
+        "id": "CCTV10",
+        "logo": "CCTV10",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv10hd.m3u8",
+            "http://222.85.198.92:8000/hls/9/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV11 戏曲",
+        "id": "CCTV11",
+        "logo": "CCTV11",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv11hd.m3u8",
+            "http://222.85.198.92:8000/hls/10/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV12 社会与法",
+        "id": "CCTV12",
+        "logo": "CCTV12",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv12hd.m3u8",
+            "http://222.85.198.92:8000/hls/11/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV13 新闻",
+        "id": "CCTV13",
+        "logo": "CCTV13",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv13hd.m3u8",
+            "http://222.85.198.92:8000/hls/12/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV14 少儿",
+        "id": "CCTV14",
+        "logo": "CCTV14",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/cctv14hd.m3u8",
+            "http://222.85.198.92:8000/hls/13/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV15 音乐",
+        "id": "CCTV15",
+        "logo": "CCTV15",
+        "url": [
+            "http://222.85.198.92:8000/hls/14/index.m3u8"
+            ]
+      },
+      {
+        "name": "CCTV16 奥林匹克",
+        "id": "CCTV16",
+        "logo": "CCTV16",
+        "url": ""
+      },
+      {
+        "name": "CCTV17 农业农村",
+        "id": "CCTV17",
+        "logo": "CCTV17",
+        "url": [
+            "http://222.85.198.92:8000/hls/15/index.m3u8"
+            ]
+      },
+      {
+        "name": "CGTN 英语",
+        "id": "CGTN-Eng",
+        "logo": "CGTN",
+        "url": [
+            "https://0472.org/hls/cgtn.m3u8",
+            "http://english-livetx.cgtn.com/hls/yypdyyctzb_hd.m3u8"
+            ]
+      },
+      {
+        "name": "CGTN 记录",
+        "id": "CGTN-Doc",
+        "logo": "CGTN记录",
+        "url": [
+            "https://0472.org/hls/cgtnd.m3u8",
+            "https://english-livetx.cgtn.com/hls/yypdjlctzb_hd.m3u8"
+            ]
+      },
+      {
+        "name": "CGTN 西语",
+        "id": "CGTN-ES",
+        "logo": "CGTN西语",
+        "url": [
+            "https://0472.org/hls/cgtnx.m3u8",
+            "http://espanol-liveali.cgtn.com/hls/LSveOGBaBw41Ea7ukkVAUdKQ220802LSTexu6xAuFH8VZNBLE1ZNEa220802cd.m3u8"
+            ]
+      },
+      {
+        "name": "CGTN 法语",
+        "id": "CGTN-FR",
+        "logo": "CGTN法语",
+        "url": [
+            "https://0472.org/hls/cgtnf.m3u8",
+            "http://francais-livews.cgtn.com/hls/LSvev95OuFZtKLc6CeKEFYXj220802LSTeV6PO0Ut9r71Uq3k5goCA220802cd.m3u8"
+            ]
+      },
+      {
+        "name": "CGTN 俄语",
+        "id": "CGTN-RU",
+        "logo": "CGTN俄语",
+        "url": [
+            "https://0472.org/hls/cgtne.m3u8",
+            "http://russian-livews.cgtn.com/hls/LSvexABhNipibK5KRuUkvHZ7220802LSTeze9o8tdFXMHsb1VosgoT220802cd.m3u8"
+            ]
+      },
+      {
+        "name": "CGTN 阿语",
+        "id": "CGTN-AR",
+        "logo": "CGTN阿语",
+        "url": [
+            "https://0472.org/hls/cgtna.m3u8",
+            "http://arabic-livews.cgtn.com/hls/LSveq57bErWLinBnxosqjisZ220802LSTefTAS9zc9mpU08y3np9TH220802cd.m3u8"
+            ]
+      }
+    ]
+  },
+  {
+    "group": "🇨🇳 卫视频道",
+    "channels": [
+      {
+        "name": "苏州4K",
+        "id": "sz4k",
+        "logo": "苏州4K",
+        "url": [
+            "https://tylive.kan0512.com/norecord/csztv4k_4k.m3u8"
+            ]
+      },
+      {
+        "name": "河北4K",
+        "id": "hb4k",
+        "logo": "河南4K",
+        "url": [
+            "https://event.pull.hebtv.com/live/live101.m3u8",
+            "https://event.pull.hebtv.com:443/live/live101.m3u8"
+        ]
+      },
+      {
+        "name": "浙江4K",
+        "id": "zj4k",
+        "logo": "浙江卫视",
+        "url": [
+            "https://play-qukan.cztv.com/live/1758879019692345.m3u8"
+            ]
+      },
+      {
+        "name": "湖南4K",
+        "id": "hn4k",
+        "logo": "湖南卫视",
+        "url": [
+            "http://hlsal-ldvt.qing.mgtv.com/nn_live/nn_x64/dWlwPTEyNy4wLjAuMSZ1aWQ9cWluZy1jbXMmbm5fdGltZXpvbmU9OCZjZG5leF9pZD1hbF9obHNfbGR2dCZ1dWlkPTliODY4NmU5ZTM2YzYwMmMmZT02OTE0NjA0JnY9MSZpZD1ITldTWkdTVCZzPTcwN2RiYTc2YzJjNmJmMTQ4MmUyZGYzOWU2NWM3YWFi/HNWSZGST.m3u8"
+            ]
+      },
+      {
+        "name": "贵州卫视",
+        "id": "gzws",
+        "logo": "贵州卫视",
+        "url": [
+            "http://222.85.198.92:8000/hls/16/index.m3u8"
+            ]
+      },
+      {
+        "name": "湖南卫视",
+        "id": "hnws",
+        "logo": "湖南卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/hunanhd.m3u8",
+            "http://222.85.198.92:8000/hls/17/index.m3u8"
+            ]
+      },
+      {
+        "name": "浙江卫视",
+        "id": "zjws",
+        "logo": "浙江卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/zjhd.m3u8",
+            "https://ali-m-l.cztv.com/channels/lantian/channel001/1080p.m3u8",
+            "http://222.85.198.92:8000/hls/18/index.m3u8"
+            ]
+      },
+      {
+        "name": "江苏卫视",
+        "id": "jsws",
+        "logo": "江苏卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/jshd.m3u8",
+            "http://222.85.198.92:8000/hls/19/index.m3u8"
+            ]
+      },
+      {
+        "name": "安徽卫视",
+        "id": "ahws",
+        "logo": "安徽卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/ahhd.m3u8",
+            "http://222.85.198.92:8000/hls/20/index.m3u8"
+            ]
+      },
+      {
+        "name": "河南卫视",
+        "id": "Hnws",
+        "logo": "河南卫视",
+        "url": [
+            "http://222.85.198.92:8000/hls/27/index.m3u8"
+            ]
+      },
+      {
+        "name": "北京卫视",
+        "id": "bjws",
+        "logo": "北京卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/btv1hd.m3u8",
+            "http://222.85.198.92:8000/hls/29/index.m3u8"
+            ]
+      },
+      {
+        "name": "云南卫视",
+        "id": "ynws",
+        "logo": "云南卫视",
+        "url": [
+            "http://222.85.198.92:8000/hls/35/index.m3u8"
+            ]
+      },
+      {
+        "name": "东方卫视",
+        "id": "dfws",
+        "logo": "东方卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/dfhd.m3u8",
+            "http://222.85.198.92:8000/hls/38/index.m3u8"
+            ]
+      },
+      {
+        "name": "辽宁卫视",
+        "id": "lnws",
+        "logo": "辽宁卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/lnhd.m3u8"
+            ]
+      },
+      {
+        "name": "深圳卫视",
+        "id": "szws",
+        "logo": "深圳卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/szhd.m3u8"
+            ]
+      },
+      {
+        "name": "广东卫视",
+        "id": "gdws",
+        "logo": "广东卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/gdhd.m3u8"
+            ]
+      },
+      {
+        "name": "天津卫视",
+        "id": "tjws",
+        "logo": "天津卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/tjhd.m3u8"
+            ]
+      },
+      {
+        "name": "山东卫视",
+        "id": "sdws",
+        "logo": "山东卫视",
+        "url": [
+            "http://222.85.198.92:8000/hls/43/index.m3u8"
+            ]
+      },
+      {
+        "name": "江西卫视",
+        "id": "jxws",
+        "logo": "江西卫视",
+        "url": [
+            "http://222.85.198.92:8000/hls/44/index.m3u8"
+            ]
+      },
+      {
+        "name": "黑龙江卫视",
+        "id": "hljws",
+        "logo": "黑龙江卫视",
+        "url": [
+            "http://iptv.huuc.edu.cn/hls/hljhd.m3u8",
+            "http://222.85.198.92:8000/hls/45/index.m3u8"
+            ]
+      },
+      {
+        "name": "四川卫视",
+        "id": "scws",
+        "logo": "四川卫视",
+        "url": [
+            "http://222.85.198.92:8000/hls/46/index.m3u8",
+            "http://222.85.198.92:8000/hls/46/index.m3u8"
+            ]
+      }
+    ]
+  },
+  {
+    "group": "🇨🇳 港澳频道",
+    "channels": [
+      {
+        "name": "翡翠台",
+        "id": "fct",
+        "logo": "翡翠台",
+        "url": [
+            "https://cdn6.101.qzz.io/163189/fct",
+            "http://mytv.cdn.loc.cc/o12.php?id=fct",
+            "http://php.jdshipin.com/TVOD/iptv.php?id=fct4",
+            "https://smt.1678520.xyz/smt3.2.1.php?id=jade_twn"
+            ]
+      },
+      {
+        "name": "中文网",
+        "id": "zww",
+        "logo": "凤凰卫视中文台",
+        "url": "https://cdn6.101.qzz.io/163189/fhzw"
+      },
+      {
+        "name": "资讯网",
+        "id": "zxw",
+        "logo": "凤凰卫视资讯台",
+        "url": [
+            "https://cdn6.101.qzz.io/163189/fhzx",
+            "https://smt.1678520.xyz/smt3.2.1.php?id=phoenixinfo_hd"
+            ]
+      },
+      {
+        "name": "香港台",
+        "id": "xgt",
+        "logo": "凤凰卫视香港台",
+        "url": "https://cdn6.101.qzz.io/163189/fhhk"
+      },
+      {
+        "name": "美亚电影台",
+        "id": "mydy",
+        "logo": "美亚电影台",
+        "url": "https://smt.1678520.xyz/smt3.2.1.php?id=meiyamovie_twn"
+      }
+    ]
+  }
+]

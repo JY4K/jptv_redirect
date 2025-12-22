@@ -102,12 +102,12 @@ export default async function handler(req, res) {
         body { transition: background 0.5s ease, color 0.3s ease; }
         
         body.theme-light { background: #f3f4f6; color: #1f2937; }
-        .theme-light .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(40px); border: 1px solid #e5e7eb; }
+        .theme-light .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border: 1px solid #e5e7eb; }
         .theme-light .card { background: rgba(255, 255, 255, 0.9); border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
         .theme-light .card:hover { border-color: #3b82f6; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
 
         body.theme-dark { background: #0f172a; color: #f1f5f9; }
-        .theme-dark .glass-panel { background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(40px); }
+        .theme-dark .glass-panel { background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(20px); }
         .theme-dark .card { background: #1e293b; border: 1px solid #334155; }
         .theme-dark .card:hover { border-color: #60a5fa; background: #334155; }
 

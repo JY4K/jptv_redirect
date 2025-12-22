@@ -1,4 +1,3 @@
-
 import { getChannels } from '../utils/helpers.js';
 import config from '../utils/config.js';
 import fetch from 'node-fetch';
@@ -87,7 +86,6 @@ export default async function handler(req, res) {
     console.error("Data load error:", e);
   }
 
-  // 服务端生成的 HTML 字符串
   const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -160,9 +158,9 @@ export default async function handler(req, res) {
     <div class="max-w-[1600px] mx-auto">
         <header class="flex flex-col md:flex-row justify-between items-center mb-8 glass-panel p-6 rounded-2xl gap-4 shadow-sm">
             <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
-                    <i class="fas fa-satellite-dish text-xl"></i>
-                </div>
+                <!-- 修改 Logo 部分: 使用 public 目录下的 jptv.png -->
+                <img src="/jptv.png" class="w-12 h-12 rounded-xl shadow-lg shadow-blue-500/30 object-cover" alt="JPTV Logo">
+                
                 <div>
                     <h1 class="text-2xl font-bold">JPTV 控制台</h1>
                     <div class="flex gap-2 text-xs font-mono mt-1 opacity-70 items-center">
@@ -253,7 +251,6 @@ export default async function handler(req, res) {
                 return;
             }
 
-            // 注意：客户端反引号 \\ \` 和客户端变量插值 \\ \${} 必须在服务端转义
             app.innerHTML = raw.map((g, gi) => \`
                 <div class="glass-panel rounded-2xl p-6 animate-fade-in">
                     <div class="flex items-center justify-between mb-6 border-b border-current/10 pb-4">
@@ -358,7 +355,6 @@ export default async function handler(req, res) {
         
         function addGroup() { raw.push({group:'新分组',channels:[]}); render(); }
         
-        // 核心修改 1: addChannel 
         async function addChannel(gi) { 
             // 1. 创建空对象
             const newChannel = {name:'', id: '', logo: '', url:[]};
@@ -370,7 +366,6 @@ export default async function handler(req, res) {
             await editChannel(gi, ci, true);
         }
 
-        // 核心修改 2: editChannel
         async function editChannel(gi, ci, isNew = false) {
             if(document.querySelector('.dragging')) return;
 
@@ -403,7 +398,7 @@ export default async function handler(req, res) {
                             <textarea id="s-url" class="w-full p-3 border rounded bg-transparent font-mono text-xs h-32 focus:ring-2 ring-blue-500 outline-none" placeholder="http://...">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
                         </div>
                     </div>\`,
-                showDenyButton: !isNew, // 新建时不要"删除"按钮，只有取消
+                showDenyButton: !isNew, 
                 denyButtonText: '删除', 
                 confirmButtonText: '保存', 
                 showCancelButton: true,
@@ -417,7 +412,6 @@ export default async function handler(req, res) {
                     const urlStr = document.getElementById('s-url').value;
                     const urls = urlStr.split('\\n').filter(x=>x.trim());
                     
-                    // 任何一个关键信息为空，阻止保存
                     if(!name || !logo || urls.length === 0) {
                         Swal.showValidationMessage('频道名、Logo 和 直播源 均为必填项');
                         return false; 
@@ -433,11 +427,9 @@ export default async function handler(req, res) {
             });
 
             if (value) { 
-                // 点击保存且校验通过
                 raw[gi].channels[ci] = value; 
                 render(); 
             } else if (isDenied) { 
-                // 点击了删除（仅在编辑已有频道时出现）
                 raw[gi].channels.splice(ci, 1); 
                 render(); 
             } else if (isNew && isDismissed) {

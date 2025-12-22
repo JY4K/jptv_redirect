@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License">
 </p>
 
-> **JPTV Pro** 是一个基于 Vercel Serverless 构建的轻量级 JPTV 直播源管理与智能重定向系统。它不仅是订阅转换工具，更是您个人专属的“直播源路由器”。
+> **JPTV_Redirect** 是一个基于 Vercel Serverless 构建的轻量级 JPTV 直播源管理与智能重定向系统。它不仅是订阅转换工具，更是您个人专属的“直播源路由器”。
 
 ### 项目初衷
 - 为了更好的可视化部署直播源，无需太复杂的配置，方便家里老人无广观看想看的频道节目

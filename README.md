@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://mytv.jy4k.asia/logo/jptv.png" alt="Clash" width="128" style="border-radius: 16px;" />
+  <img src="./logo/jptv.png" alt="Clash" width="128" style="border-radius: 16px;" />
 </div>
 
 <h2 align="center">
@@ -35,11 +35,13 @@
 您可以选择 **一键部署** 或 **手动部署**。
 
 ### 方式一：一键部署 (推荐)
+
 <p align="">
-  <a href="https://vercel.com/new/clone?repository-url=https://github.com/imput/jptv-pro&env=ADMIN_TOKEN">
+  <a href="https://vercel.com/new/clone?repository-url=https://github.com/JY4K/jptv_redirect">
     <img src="https://vercel.com/button" alt="Deploy with Vercel"/>
   </a>
 </p>
+
 1. 点击上方的 **Deploy** 按钮。
 2. 在 Vercel 页面中，创建一个 Git 仓库（Create Git Repository）。
 3. 在 **Configure Project** 步骤中，设置 `ADMIN_TOKEN` (后台管理密码)。
@@ -78,16 +80,15 @@
 
 **获取 API Token (`DEPLOY_PLATFROM_TOKEN`)**
 
-1. 点击右上角头像,选择 **Settings**
-2. 在左侧菜单中选择 **Tokens**
-3. 点击 **Create Token** 按钮
-4. 输入 Token 名称(如: `environment-variables-api`)
-5. 选择 **Scope**:
+1. 点击 [Token](https://vercel.com/account/settings/tokens)
+2. 输入 Token 名称(如: `environment-variables-api`)
+3. 选择 **Scope**:
    - 可以选择 **Full Account** 或特定项目
    - 建议选择特定项目以提高安全性
-6. 设置过期时间(可选)
-7. 点击 **Create** 创建 Token
-8. **立即复制并保存** Token(只显示一次)
+4. 设置过期时间(可选)
+5. 点击 **Create** 创建 Token
+6. **立即复制并保存** Token(只显示一次)
+
 
 > ⚠️ **注意**: `DEPLOY_PLATFROM_PROJECT` 和 `DEPLOY_PLATFROM_TOKEN` 是实现后台“保存并部署”功能的关键，请务必正确配置。
 

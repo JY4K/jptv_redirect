@@ -1,0 +1,19 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/jptv.php", "destination": "/api/jptv" },
+    { "source": "/ipv6.m3u", "destination": "/api/m3u" },
+    { "source": "/ipv6.txt", "destination": "/api/txt" },
+    { "source": "/", "destination": "/api/manage" },
+    { "source": "/:token", "destination": "/api/manage?token=:token" }
+  ]
+}

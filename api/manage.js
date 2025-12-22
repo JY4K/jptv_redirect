@@ -1,3 +1,4 @@
+
 import { getChannels } from '../utils/helpers.js';
 import config from '../utils/config.js';
 import fetch from 'node-fetch';
@@ -86,6 +87,7 @@ export default async function handler(req, res) {
     console.error("Data load error:", e);
   }
 
+  // 服务端生成的 HTML 字符串
   const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -251,6 +253,7 @@ export default async function handler(req, res) {
                 return;
             }
 
+            // 注意：客户端反引号 \\ \` 和客户端变量插值 \\ \${} 必须在服务端转义
             app.innerHTML = raw.map((g, gi) => \`
                 <div class="glass-panel rounded-2xl p-6 animate-fade-in">
                     <div class="flex items-center justify-between mb-6 border-b border-current/10 pb-4">
@@ -306,7 +309,6 @@ export default async function handler(req, res) {
             dragSrc = { gi, ci };
             e.target.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
-            // 兼容性：某些浏览器需要设置数据才能拖拽
             e.dataTransfer.setData('text/plain', JSON.stringify({gi, ci}));
         }
 
@@ -331,16 +333,9 @@ export default async function handler(req, res) {
 
         function dragDrop(e, targetGi, targetCi) {
             if (e.stopPropagation) e.stopPropagation();
-            
-            // 如果源和目标相同，不做处理
             if (dragSrc.gi === targetGi && dragSrc.ci === targetCi) return false;
 
-            // 1. 删除源元素
             const [movedItem] = raw[dragSrc.gi].channels.splice(dragSrc.ci, 1);
-            
-            // 2. 插入到目标位置
-            // 如果是在同一组内且向下移动，索引可能需要调整，但因为先删除了，
-            // 剩下的元素索引会前移，所以直接插入到目标索引通常是直观的
             raw[targetGi].channels.splice(targetCi, 0, movedItem);
 
             render();
@@ -354,34 +349,43 @@ export default async function handler(req, res) {
         }
 
         function updateGroup(i, v) { raw[i].group = v; }
+        
         function deleteGroup(i) {
             Swal.fire({ title: '确认删除?', icon: 'warning', showCancelButton: true, confirmButtonText: '删除', confirmButtonColor: '#ef4444' }).then(r => {
                 if(r.isConfirmed) { raw.splice(i, 1); render(); }
             });
         }
+        
         function addGroup() { raw.push({group:'新分组',channels:[]}); render(); }
-        function addChannel(gi) { 
-            const newId = '';
-            raw[gi].channels.push({name:'', id: newId, logo: '', url:[]}); 
+        
+        // 核心修改 1: addChannel 
+        async function addChannel(gi) { 
+            // 1. 创建空对象
+            const newChannel = {name:'', id: '', logo: '', url:[]};
+            raw[gi].channels.push(newChannel); 
             render(); 
-            editChannel(gi, raw[gi].channels.length-1);
+            
+            // 2. 立即打开编辑窗口，传入 isNew = true
+            const ci = raw[gi].channels.length - 1;
+            await editChannel(gi, ci, true);
         }
 
-        async function editChannel(gi, ci) {
-            // 防止点击事件在拖拽结束时触发
+        // 核心修改 2: editChannel
+        async function editChannel(gi, ci, isNew = false) {
             if(document.querySelector('.dragging')) return;
 
             const ch = raw[gi].channels[ci];
             const isDark = currentTheme === 'dark';
-            const { value, isDenied } = await Swal.fire({
-                title: '编辑频道',
+            
+            const { value, isDenied, isDismissed } = await Swal.fire({
+                title: isNew ? '添加频道' : '编辑频道',
                 background: isDark ? '#1e293b' : '#fff',
                 color: isDark ? '#fff' : '#333',
                 width: '600px',
                 html: \`
                     <div class="space-y-4 text-left mt-2">
                         <div>
-                            <label class="text-xs opacity-60 block mb-1">名称</label>
+                            <label class="text-xs opacity-60 block mb-1">名称 <span class="text-red-500">*</span></label>
                             <input id="s-name" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.name}">
                         </div>
                         <div class="flex gap-4">
@@ -390,26 +394,57 @@ export default async function handler(req, res) {
                                 <input id="s-id" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.id}">
                             </div>
                             <div class="flex-1">
-                                <label class="text-xs opacity-60 block mb-1">Logo</label>
-                                <input id="s-logo" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" placeholder="选填" value="\${ch.logo||''}">
+                                <label class="text-xs opacity-60 block mb-1">Logo <span class="text-red-500">*</span></label>
+                                <input id="s-logo" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" placeholder="文件名或URL" value="\${ch.logo||''}">
                             </div>
                         </div>
                         <div>
-                            <label class="text-xs opacity-60 block mb-1">直播源 (一行一个)</label>
+                            <label class="text-xs opacity-60 block mb-1">直播源 (一行一个) <span class="text-red-500">*</span></label>
                             <textarea id="s-url" class="w-full p-3 border rounded bg-transparent font-mono text-xs h-32 focus:ring-2 ring-blue-500 outline-none" placeholder="http://...">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
                         </div>
                     </div>\`,
-                showDenyButton: true, denyButtonText: '删除', confirmButtonText: '保存', showCancelButton: true,
-                preConfirm: () => ({
-                    name: document.getElementById('s-name').value,
-                    id: document.getElementById('s-id').value,
-                    logo: document.getElementById('s-logo').value,
-                    url: document.getElementById('s-url').value.split('\\n').filter(x=>x.trim())
-                })
+                showDenyButton: !isNew, // 新建时不要"删除"按钮，只有取消
+                denyButtonText: '删除', 
+                confirmButtonText: '保存', 
+                showCancelButton: true,
+                cancelButtonText: '取消',
+                
+                // 校验逻辑
+                preConfirm: () => {
+                    const name = document.getElementById('s-name').value.trim();
+                    const id = document.getElementById('s-id').value.trim();
+                    const logo = document.getElementById('s-logo').value.trim();
+                    const urlStr = document.getElementById('s-url').value;
+                    const urls = urlStr.split('\\n').filter(x=>x.trim());
+                    
+                    // 任何一个关键信息为空，阻止保存
+                    if(!name || !logo || urls.length === 0) {
+                        Swal.showValidationMessage('频道名、Logo 和 直播源 均为必填项');
+                        return false; 
+                    }
+
+                    return {
+                        name: name,
+                        id: id,
+                        logo: logo,
+                        url: urls
+                    };
+                }
             });
 
-            if (value) { raw[gi].channels[ci] = value; render(); }
-            else if (isDenied) { raw[gi].channels.splice(ci, 1); render(); }
+            if (value) { 
+                // 点击保存且校验通过
+                raw[gi].channels[ci] = value; 
+                render(); 
+            } else if (isDenied) { 
+                // 点击了删除（仅在编辑已有频道时出现）
+                raw[gi].channels.splice(ci, 1); 
+                render(); 
+            } else if (isNew && isDismissed) {
+                // 如果是新频道，并且被取消、关闭或点击背景，则自动删除创建的空对象
+                raw[gi].channels.splice(ci, 1);
+                render();
+            }
         }
 
         async function saveData() {

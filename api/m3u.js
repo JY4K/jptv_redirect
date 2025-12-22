@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   const groups = getChannels();
   const baseUrl = `https://${req.headers.host}`;
 
-  let m3u = "#EXTM3U x-tvg-url=\"https://live.fanmingming.com/e.xml\"\n";
+  let m3u = "#EXTM3U url-tvg=\"https://epg.freejptv.com/jp.xml,https://animenosekai.github.io/japanterebi-xmltv/guide.xml\" tvg-shift=0 m3uautoload=1\n";
 
   if (!groups || groups.length === 0) {
     m3u += `#EXTINF:-1 group-title="提示",无数据\n`;

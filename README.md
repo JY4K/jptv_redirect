@@ -102,7 +102,8 @@
 | **M3U** | `/ipv6.m3u` | 包含 Logo、EPG ID、分组信息的完整格式    |
 | **TXT** | `/ipv6.txt` | 传统的 `频道名,URL` 格式，适合电视盒子壳    |
 
-> M3U的 **epg** 和 **logo** 数据来源于： [范明明](https://github.com/fanmingming/live)
+> M3U的 **epg** 和 **logo** 数据来源于： [fanmingming](https://github.com/fanmingming/live)和
+ [taksssss](https://github.com/taksssss/tv)
 
 
 ### ⚙️ 管理后台

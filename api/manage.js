@@ -13,17 +13,15 @@ export default async function handler(req, res) {
 
     let { newData } = req.body;
 
-    // 【新增功能】检测并删除空的分组或空的频道数据
+    // 检测并删除空的分组或空的频道数据
     newData = newData.map(g => ({
       ...g,
       channels: g.channels.filter(ch => {
-        // 检查频道是否有名称，且url数组不为空
         const hasName = ch.name && ch.name.trim() !== '';
         const hasUrl = Array.isArray(ch.url) ? ch.url.length > 0 : (ch.url && ch.url.trim() !== '');
         return hasName && hasUrl;
       })
     })).filter(g => {
-      // 检查分组是否有名称，且包含至少一个有效频道
       return g.group && g.group.trim() !== '' && g.channels.length > 0;
     });
 
@@ -36,7 +34,6 @@ export default async function handler(req, res) {
     try {
       const commonHeaders = { 'Authorization': `Bearer ${vToken}`, 'Content-Type': 'application/json' };
 
-      // 1. 获取项目详情
       const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers: commonHeaders });
       if (!projectRes.ok) throw new Error('无法获取项目信息，请检查 Project ID');
       const projectData = await projectRes.json();
@@ -48,17 +45,14 @@ export default async function handler(req, res) {
       const { repoId, type: repoType } = projectData.link;
       const gitBranch = projectData.targets?.production?.gitBranch || 'main';
 
-      // 2. 获取现有环境变量
       const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers: commonHeaders });
       const listData = await listRes.json();
       const existingVars = listData.envs ? listData.envs.filter(e => e.key === 'CHANNELS_DATA') : [];
 
-      // 3. 删除旧变量
       await Promise.all(existingVars.map(env =>
         fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${env.id}`, { method: 'DELETE', headers: commonHeaders })
       ));
 
-      // 4. 创建新变量
       const createRes = await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
         method: 'POST',
         headers: commonHeaders,
@@ -72,7 +66,6 @@ export default async function handler(req, res) {
 
       if (!createRes.ok) throw new Error(`变量创建失败: ${await createRes.text()}`);
 
-      // 5. 触发重新部署
       const deployRes = await fetch(`https://api.vercel.com/v13/deployments`, {
         method: 'POST',
         headers: commonHeaders,
@@ -113,64 +106,22 @@ export default async function handler(req, res) {
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         body { transition: background 0.5s ease, color 0.3s ease; }
-        
         body.theme-light { background: #f3f4f6; color: #1f2937; }
         .theme-light .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border: 1px solid #e5e7eb; }
         .theme-light .card { background: rgba(255, 255, 255, 0.9); border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
-        .theme-light .card:hover { border-color: #3b82f6; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
-
         body.theme-dark { background: #0f172a; color: #f1f5f9; }
         .theme-dark .glass-panel { background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(20px); }
         .theme-dark .card { background: #1e293b; border: 1px solid #334155; }
-        .theme-dark .card:hover { border-color: #60a5fa; background: #334155; }
-
-        .card {
-            cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            height: 160px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem;
-            position: relative;
-        }
-
-        .card.dragging {
-            opacity: 0.4;
-            border: 2px dashed #3b82f6;
-        }
-        .card.drag-over {
-            border: 2px solid #3b82f6;
-            transform: scale(1.05);
-            z-index: 10;
-        }
-
-        .channel-logo {
-            height: 64px;
-            width: auto;
-            object-fit: contain;
-            margin-bottom: 12px;
-            transition: transform 0.3s;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
-            pointer-events: none;
-        }
-        .card:hover .channel-logo { transform: scale(1.1); }
-        
-        .footer-disclaimer {
-            margin-top: 4rem;
-            padding-top: 2rem;
-            border-top: 1px solid rgba(0,0,0,0.1);
-            text-align: center;
-            font-size: 0.85rem;
-            opacity: 0.7;
-        }
-        .theme-dark .footer-disclaimer { border-top-color: rgba(255,255,255,0.1); }
+        .card { cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; position: relative; }
+        .card.dragging { opacity: 0.4; border: 2px dashed #3b82f6; }
+        .card.drag-over { border: 2px solid #3b82f6; transform: scale(1.05); z-index: 10; }
+        .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; transition: transform 0.3s; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); pointer-events: none; }
+        .footer-disclaimer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(0,0,0,0.1); text-align: center; font-size: 0.85rem; opacity: 0.7; }
     </style>
 </head>
 <body class="theme-light min-h-screen p-4 md:p-8">
     <div class="max-w-[1600px] mx-auto">
-        <header class="flex flex-col md:flex-row justify-between items-center mb-8 glass-panel p-6 rounded-2xl gap-4 shadow-sm">
+        <header class="flex flex-col lg:flex-row justify-between items-center mb-8 glass-panel p-6 rounded-2xl gap-4 shadow-sm">
             <div class="flex items-center gap-4">
                 <div class="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
                     <i class="fas fa-satellite-dish text-xl"></i>
@@ -184,12 +135,20 @@ export default async function handler(req, res) {
                 </div>
             </div>
             
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center justify-center gap-3">
                 <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-current/10 hover:bg-current/20 flex items-center justify-center transition">
                     <i class="fas fa-sun" id="themeIcon"></i>
                 </button>
                 
                 ${isAuth ? `
+                <div class="flex items-center gap-2 bg-black/5 dark:bg-white/5 p-1 rounded-xl">
+                    <button onclick="exportData()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium">
+                        <i class="fas fa-download"></i> 导出
+                    </button>
+                    <button onclick="globalImport()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium">
+                        <i class="fas fa-upload"></i> 导入
+                    </button>
+                </div>
                 <button onclick="saveData()" id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition flex items-center gap-2">
                     <i class="fas fa-cloud-upload-alt"></i> 保存并部署
                 </button>
@@ -212,7 +171,7 @@ export default async function handler(req, res) {
         </div>
         ` : `
         <footer class="footer-disclaimer">
-            <p class="mb-2">这是一个基于 js 的直播重定向服务器，仅支持vercel部署，如有需求可将代码提交给AI进行修改。本项目仅为个人爱好开发，代码开源。如有任何侵权行为，请联系删除。</p>
+            <p class="mb-2">这是一个基于 JS 的直播重定向服务器，仅支持 Vercel 部署。本项目仅为个人爱好开发，代码开源。</p>
             <p class="mb-2">免责声明：本项目仅用于技术学习与交流，所有频道资源均来源于网络，本项目不存储任何视频文件。</p>
             <p>Project Address: <a href="${config.projectUrl}" target="_blank" class="text-blue-500 hover:underline">GitHub</a></p>
         </footer>
@@ -280,7 +239,6 @@ export default async function handler(req, res) {
                         <div class="flex items-center gap-1">
                             <button onclick="moveGroup(\${gi}, -1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === 0 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-up"></i></button>
                             <button onclick="moveGroup(\${gi}, 1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === raw.length - 1 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-down"></i></button>
-                            <button onclick="importToGroup(\${gi})" class="p-2 text-green-500 hover:bg-green-500/10 rounded transition ml-1" title="导入数据"><i class="fas fa-file-import"></i></button>
                             <button onclick="deleteGroup(\${gi})" class="text-red-400 hover:bg-red-500/10 p-2 rounded transition ml-1"><i class="fas fa-trash-alt"></i></button>
                         </div>
                         \` : ''}
@@ -321,35 +279,40 @@ export default async function handler(req, res) {
             \`).join('');
         }
 
-        // --- 新增功能：分组移动 ---
-        function moveGroup(index, direction) {
-            const targetIndex = index + direction;
-            if (targetIndex < 0 || targetIndex >= raw.length) return;
-            const temp = raw[index];
-            raw[index] = raw[targetIndex];
-            raw[targetIndex] = temp;
-            render();
+        // --- 导出 JPTV 数据 ---
+        function exportData() {
+            const dataStr = JSON.stringify(raw, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = \`jptv_backup_\${new Date().toISOString().slice(0,10)}.json\`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            Swal.fire({ icon: 'success', title: '数据导出成功', text: '请妥善保管备份文件', timer: 1500 });
         }
 
-        // --- 新增功能：批量导入 (TXT/M3U/粘贴) ---
-        async function importToGroup(gi) {
+        // --- 全局导入 (支持 JPTV JSON, M3U, TXT) ---
+        async function globalImport() {
             const isDark = currentTheme === 'dark';
             const { value: text } = await Swal.fire({
-                title: '批量导入频道',
+                title: '批量导入数据',
                 background: isDark ? '#1e293b' : '#fff',
                 color: isDark ? '#fff' : '#333',
                 html: \`
                     <div class="text-left space-y-4">
-                        <p class="text-xs opacity-60">粘贴 TXT (名称,链接) 或 M3U 文本，或选择本地文件。</p>
-                        <textarea id="import-text" class="w-full h-48 p-2 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500" placeholder="CCTV-1,http://..."></textarea>
+                        <p class="text-xs opacity-60">支持 JPTV JSON 备份文件、M3U 内容或 TXT (名称,链接)。</p>
+                        <textarea id="import-text" class="w-full h-48 p-2 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500" placeholder="粘贴内容于此..."></textarea>
                         <div class="flex items-center gap-2">
-                            <label class="text-xs font-bold">文件导入:</label>
-                            <input type="file" id="import-file" accept=".txt,.m3u" class="text-xs">
+                            <label class="text-xs font-bold">文件选择:</label>
+                            <input type="file" id="import-file" accept=".json,.txt,.m3u" class="text-xs">
                         </div>
                     </div>
                 \`,
                 showCancelButton: true,
-                confirmButtonText: '开始导入',
+                confirmButtonText: '确认导入',
                 didOpen: () => {
                     const fileInput = document.getElementById('import-file');
                     fileInput.onchange = (e) => {
@@ -362,17 +325,37 @@ export default async function handler(req, res) {
                         reader.readAsText(file);
                     };
                 },
-                preConfirm: () => {
-                    return document.getElementById('import-text').value;
-                }
+                preConfirm: () => document.getElementById('import-text').value
             });
 
-            if (text) {
+            if (!text) return;
+
+            try {
+                // 1. 尝试解析为 JPTV JSON
+                if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
+                    const jsonData = JSON.parse(text);
+                    const list = Array.isArray(jsonData) ? jsonData : (jsonData.channels ? [jsonData] : null);
+                    if (list && list[0].group) {
+                        const { isConfirmed } = await Swal.fire({
+                            title: '检测到 JPTV 格式',
+                            text: '是否替换当前所有数据？(取消则追加)',
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonText: '替换',
+                            cancelButtonText: '追加'
+                        });
+                        if (isConfirmed) raw = list;
+                        else raw = [...raw, ...list];
+                        render();
+                        return;
+                    }
+                }
+
+                // 2. 尝试解析为 M3U 或 TXT
                 const lines = text.split('\\n').filter(l => l.trim());
-                let addedCount = 0;
+                let addedChannels = [];
                 
                 if (text.includes('#EXTM3U')) {
-                    // M3U 解析逻辑
                     for (let i = 0; i < lines.length; i++) {
                         if (lines[i].startsWith('#EXTINF:')) {
                             const infoLine = lines[i];
@@ -381,47 +364,46 @@ export default async function handler(req, res) {
                                 const name = infoLine.split(',').pop().trim();
                                 const logoMatch = infoLine.match(/tvg-logo="([^"]+)"/);
                                 const idMatch = infoLine.match(/tvg-id="([^"]+)"/);
-                                raw[gi].channels.push({
+                                addedChannels.push({
                                     name: name || '未知频道',
                                     id: idMatch ? idMatch[1] : '',
                                     logo: logoMatch ? logoMatch[1] : '',
                                     url: [urlLine.trim()]
                                 });
-                                addedCount++;
                                 i++;
                             }
                         }
                     }
                 } else {
-                    // TXT 解析逻辑 (名称,链接 或 名称#链接)
                     lines.forEach(line => {
                         const parts = line.split(/[,，#]/);
                         if (parts.length >= 2) {
                             const name = parts[0].trim();
                             const url = parts[parts.length - 1].trim();
                             if (url.startsWith('http')) {
-                                raw[gi].channels.push({ name, id: '', logo: '', url: [url] });
-                                addedCount++;
+                                addedChannels.push({ name, id: '', logo: '', url: [url] });
                             }
                         }
                     });
                 }
-                
-                if (addedCount > 0) {
-                    Swal.fire({ icon: 'success', title: \`成功导入 \${addedCount} 个频道\`, timer: 1500 });
+
+                if (addedChannels.length > 0) {
+                    raw.push({
+                        group: '导入数据_' + new Date().toLocaleTimeString(),
+                        channels: addedChannels
+                    });
                     render();
+                    Swal.fire({ icon: 'success', title: \`成功导入 \${addedChannels.length} 个频道\` });
                 } else {
-                    Swal.fire({ icon: 'error', title: '未找到有效频道数据' });
+                    throw new Error('未识别到有效格式');
                 }
+            } catch (e) {
+                Swal.fire({ icon: 'error', title: '导入失败', text: '格式不支持或数据损坏' });
             }
         }
 
-        // --- 原始拖拽与编辑逻辑 ---
-        function dragStart(e, gi, ci) {
-            dragSrc = { gi, ci };
-            e.target.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-        }
+        // --- 拖拽与常规功能 ---
+        function dragStart(e, gi, ci) { dragSrc = { gi, ci }; e.target.classList.add('dragging'); }
         function dragOver(e) { if (e.preventDefault) e.preventDefault(); return false; }
         function dragEnter(e) { e.target.closest('.card')?.classList.add('drag-over'); }
         function dragLeave(e) { e.target.closest('.card')?.classList.remove('drag-over'); }
@@ -442,25 +424,20 @@ export default async function handler(req, res) {
         }
 
         function updateGroup(i, v) { raw[i].group = v; }
-        
         function deleteGroup(i) {
-            Swal.fire({ title: '确认删除?', icon: 'warning', showCancelButton: true, confirmButtonText: '删除', confirmButtonColor: '#ef4444' }).then(r => {
+            Swal.fire({ title: '确认删除分组?', icon: 'warning', showCancelButton: true, confirmButtonText: '删除', confirmButtonColor: '#ef4444' }).then(r => {
                 if(r.isConfirmed) { raw.splice(i, 1); render(); }
             });
         }
-        
         function addGroup() { raw.push({group:'新分组',channels:[]}); render(); }
-        
         async function addChannel(gi) { 
             const newChannel = {name:'', id: '', logo: '', url:[]};
             raw[gi].channels.push(newChannel); 
             render(); 
-            const ci = raw[gi].channels.length - 1;
-            await editChannel(gi, ci, true);
+            await editChannel(gi, raw[gi].channels.length - 1, true);
         }
 
         async function editChannel(gi, ci, isNew = false) {
-            if(document.querySelector('.dragging')) return;
             const ch = raw[gi].channels[ci];
             const isDark = currentTheme === 'dark';
             const { value, isDenied, isDismissed } = await Swal.fire({
@@ -471,7 +448,7 @@ export default async function handler(req, res) {
                 html: \`
                     <div class="space-y-4 text-left mt-2">
                         <div>
-                            <label class="text-xs opacity-60 block mb-1">名称 <span class="text-red-500">*</span></label>
+                            <label class="text-xs opacity-60 block mb-1">名称 *</label>
                             <input id="s-name" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.name}">
                         </div>
                         <div class="flex gap-4">
@@ -480,12 +457,12 @@ export default async function handler(req, res) {
                                 <input id="s-id" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.id}">
                             </div>
                             <div class="flex-1">
-                                <label class="text-xs opacity-60 block mb-1">Logo <span class="text-red-500">*</span></label>
+                                <label class="text-xs opacity-60 block mb-1">Logo *</label>
                                 <input id="s-logo" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" placeholder="文件名或URL" value="\${ch.logo||''}">
                             </div>
                         </div>
                         <div>
-                            <label class="text-xs opacity-60 block mb-1">直播源 (一行一个) <span class="text-red-500">*</span></label>
+                            <label class="text-xs opacity-60 block mb-1">直播源 (一行一个) *</label>
                             <textarea id="s-url" class="w-full p-3 border rounded bg-transparent font-mono text-xs h-32 focus:ring-2 ring-blue-500 outline-none" placeholder="http://...">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
                         </div>
                     </div>\`,
@@ -493,41 +470,26 @@ export default async function handler(req, res) {
                 denyButtonText: '删除', 
                 confirmButtonText: '保存', 
                 showCancelButton: true,
-                cancelButtonText: '取消',
                 preConfirm: () => {
                     const name = document.getElementById('s-name').value.trim();
-                    const id = document.getElementById('s-id').value.trim();
-                    const logo = document.getElementById('s-logo').value.trim();
-                    const urlStr = document.getElementById('s-url').value;
-                    const urls = urlStr.split('\\n').filter(x=>x.trim());
-                    if(!name || urls.length === 0) {
-                        Swal.showValidationMessage('频道名和直播源为必填项');
-                        return false; 
-                    }
-                    return { name, id, logo, url: urls };
+                    const urls = document.getElementById('s-url').value.split('\\n').filter(x=>x.trim());
+                    if(!name || urls.length === 0) { Swal.showValidationMessage('必填项不能为空'); return false; }
+                    return { name, id: document.getElementById('s-id').value.trim(), logo: document.getElementById('s-logo').value.trim(), url: urls };
                 }
             });
 
-            if (value) { 
-                raw[gi].channels[ci] = value; 
-                render(); 
-            } else if (isDenied) { 
-                raw[gi].channels.splice(ci, 1); 
-                render(); 
-            } else if (isNew && isDismissed) {
-                raw[gi].channels.splice(ci, 1);
-                render();
-            }
+            if (value) { raw[gi].channels[ci] = value; render(); }
+            else if (isDenied) { raw[gi].channels.splice(ci, 1); render(); }
+            else if (isNew && isDismissed) { raw[gi].channels.splice(ci, 1); render(); }
         }
 
         async function saveData() {
             const btn = document.getElementById('saveBtn');
-            const originalContent = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在部署...';
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 部署中...';
             btn.disabled = true;
 
             try {
-                // 保存请求，后端会自动执行数据清理（空分组/空频道）
                 const res = await fetch(\`/api/manage?token=\${currentToken}\`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -535,13 +497,7 @@ export default async function handler(req, res) {
                 });
                 
                 if (res.ok) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: '部署已触发',
-                        text: 'Vercel 正在应用更改（无效数据已自动剔除），请在 1-2 分钟后刷新页面查看。',
-                        timer: 5000,
-                        timerProgressBar: true
-                    });
+                    Swal.fire({ icon: 'success', title: '部署已触发', text: '请等待 1-2 分钟后刷新查看效果。', timer: 5000 });
                 } else {
                     const err = await res.json();
                     throw new Error(err.error || '保存失败');
@@ -549,7 +505,7 @@ export default async function handler(req, res) {
             } catch (e) {
                 Swal.fire({icon: 'error', title: '错误', text: e.message});
             } finally {
-                btn.innerHTML = originalContent;
+                btn.innerHTML = original;
                 btn.disabled = false;
             }
         }

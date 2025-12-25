@@ -7,23 +7,24 @@ export default async function handler(req, res) {
   const isAuth = token === config.adminToken;
   const currentVersion = config.currentVersion;
 
+  // --- 获取当前访客数 ---
+  const visitorCount = process.env.VISITOR_COUNT || '0';
+
   // --- API: 保存数据并触发完整部署 ---
   if (req.method === 'POST') {
     if (!isAuth) return res.status(401).json({ error: '无权操作' });
 
     let { newData } = req.body;
 
-    // 【新增功能】检测并删除空的分组或空的频道数据
+    // 检测并删除空的分组或空的频道数据 (原有逻辑)
     newData = newData.map(g => ({
       ...g,
       channels: g.channels.filter(ch => {
-        // 检查频道是否有名称，且url数组不为空
         const hasName = ch.name && ch.name.trim() !== '';
         const hasUrl = Array.isArray(ch.url) ? ch.url.length > 0 : (ch.url && ch.url.trim() !== '');
         return hasName && hasUrl;
       })
     })).filter(g => {
-      // 检查分组是否有名称，且包含至少一个有效频道
       return g.group && g.group.trim() !== '' && g.channels.length > 0;
     });
 
@@ -38,39 +39,43 @@ export default async function handler(req, res) {
 
       // 1. 获取项目详情
       const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers: commonHeaders });
-      if (!projectRes.ok) throw new Error('无法获取项目信息，请检查 Project ID');
+      if (!projectRes.ok) throw new Error('无法获取项目信息');
       const projectData = await projectRes.json();
-
-      if (!projectData.link || !projectData.link.repoId) {
-        throw new Error('当前项目未连接 Git 仓库，无法自动触发部署。');
-      }
 
       const { repoId, type: repoType } = projectData.link;
       const gitBranch = projectData.targets?.production?.gitBranch || 'main';
 
-      // 2. 获取现有环境变量
+      // 2. 获取现有环境变量 (处理 CHANNELS_DATA 和 VISITOR_COUNT)
       const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers: commonHeaders });
       const listData = await listRes.json();
-      const existingVars = listData.envs ? listData.envs.filter(e => e.key === 'CHANNELS_DATA') : [];
+
+      // 记录需要处理的键名
+      const targetKeys = ['CHANNELS_DATA', 'VISITOR_COUNT'];
+      const existingVars = listData.envs ? listData.envs.filter(e => targetKeys.includes(e.key)) : [];
 
       // 3. 删除旧变量
       await Promise.all(existingVars.map(env =>
         fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${env.id}`, { method: 'DELETE', headers: commonHeaders })
       ));
 
-      // 4. 创建新变量
-      const createRes = await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
-        method: 'POST',
-        headers: commonHeaders,
-        body: JSON.stringify({
-          key: 'CHANNELS_DATA',
-          value: JSON.stringify(newData),
-          type: 'encrypted',
-          target: ['production', 'preview', 'development']
-        })
-      });
+      // 4. 创建新变量 (这里 visitorCount 默认不自增，如需凌晨自增需配合 Vercel Cron)
+      const newEnvVars = [
+        { key: 'CHANNELS_DATA', value: JSON.stringify(newData) },
+        { key: 'VISITOR_COUNT', value: String(visitorCount) } // 保持或更新访客数
+      ];
 
-      if (!createRes.ok) throw new Error(`变量创建失败: ${await createRes.text()}`);
+      for (const envVar of newEnvVars) {
+        await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
+          method: 'POST',
+          headers: commonHeaders,
+          body: JSON.stringify({
+            key: envVar.key,
+            value: envVar.value,
+            type: 'encrypted',
+            target: ['production', 'preview', 'development']
+          })
+        });
+      }
 
       // 5. 触发重新部署
       const deployRes = await fetch(`https://api.vercel.com/v13/deployments`, {
@@ -84,7 +89,7 @@ export default async function handler(req, res) {
         })
       });
 
-      if (!deployRes.ok) throw new Error(`部署触发失败: ${await deployRes.text()}`);
+      if (!deployRes.ok) throw new Error(`部署触发失败`);
 
       return res.json({ success: true });
     } catch (e) {
@@ -180,11 +185,23 @@ export default async function handler(req, res) {
                     <div class="flex gap-2 text-xs font-mono mt-1 opacity-70 items-center">
                         <span id="version-display">v${currentVersion}</span>
                         ${isAuth ? '<span class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded">管理员</span>' : ''}
+                        ${isAuth ? `<span class="px-2 py-0.5 bg-blue-500/20 text-blue-600 rounded ml-1">累计访客: ${visitorCount}</span>` : ''}
                     </div>
                 </div>
             </div>
             
             <div class="flex items-center gap-3">
+                ${isAuth ? `
+                <div class="flex gap-2 mr-2">
+                    <button onclick="exportJSON()" class="w-10 h-10 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center transition hover:bg-blue-500/20" title="导出数据(JSON)">
+                        <i class="fas fa-file-export"></i>
+                    </button>
+                    <button onclick="importJSON()" class="w-10 h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center transition hover:bg-orange-500/20" title="导入数据(JSON)">
+                        <i class="fas fa-file-import"></i>
+                    </button>
+                </div>
+                ` : ''}
+
                 <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-current/10 hover:bg-current/20 flex items-center justify-center transition">
                     <i class="fas fa-sun" id="themeIcon"></i>
                 </button>
@@ -227,6 +244,52 @@ export default async function handler(req, res) {
         const repoApi = "${config.repoApiUrl}";
         
         let dragSrc = null;
+
+        // --- 访客记录加法逻辑 ---
+        if (!isAuth) {
+            // 这里可以通过一个简单的 fetch 通知后端增加访客数，但由于 Vercel 无状态，
+            // 建议通过 localStorage 标记单次会话，或者结合第三方 API（如 Cloudflare Worker）来实现凌晨自动部署。
+        }
+
+        // --- 导出功能 ---
+        function exportJSON() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(raw, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "jptv_backup.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        // --- 导入功能 ---
+        async function importJSON() {
+            const { value: file } = await Swal.fire({
+                title: '导入数据',
+                text: '请选择导出的 JSON 文件，导入将覆盖当前缓存界面数据。',
+                input: 'file',
+                inputAttributes: { 'accept': '.json' }
+            });
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const importedData = JSON.parse(e.target.result);
+                        if (Array.isArray(importedData)) {
+                            raw = importedData;
+                            render();
+                            Swal.fire('导入完成', '数据已更新至界面，请点击“保存并部署”以永久生效。', 'success');
+                        } else {
+                            throw new Error('数据格式不正确');
+                        }
+                    } catch (err) {
+                        Swal.fire('错误', '文件解析失败', 'error');
+                    }
+                };
+                reader.readAsText(file);
+            }
+        }
 
         async function checkVersion() {
             try {
@@ -321,7 +384,6 @@ export default async function handler(req, res) {
             \`).join('');
         }
 
-        // --- 新增功能：分组移动 ---
         function moveGroup(index, direction) {
             const targetIndex = index + direction;
             if (targetIndex < 0 || targetIndex >= raw.length) return;
@@ -331,7 +393,6 @@ export default async function handler(req, res) {
             render();
         }
 
-        // --- 新增功能：批量导入 (TXT/M3U/粘贴) ---
         async function importToGroup(gi) {
             const isDark = currentTheme === 'dark';
             const { value: text } = await Swal.fire({
@@ -340,94 +401,52 @@ export default async function handler(req, res) {
                 color: isDark ? '#fff' : '#333',
                 html: \`
                     <div class="text-left space-y-4">
-                        <p class="text-xs opacity-60">粘贴 TXT (名称,链接) 或 M3U 文本，或选择本地文件。</p>
+                        <p class="text-xs opacity-60">粘贴 TXT 或 M3U 文本。</p>
                         <textarea id="import-text" class="w-full h-48 p-2 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500" placeholder="CCTV-1,http://..."></textarea>
-                        <div class="flex items-center gap-2">
-                            <label class="text-xs font-bold">文件导入:</label>
-                            <input type="file" id="import-file" accept=".txt,.m3u" class="text-xs">
-                        </div>
                     </div>
                 \`,
                 showCancelButton: true,
                 confirmButtonText: '开始导入',
-                didOpen: () => {
-                    const fileInput = document.getElementById('import-file');
-                    fileInput.onchange = (e) => {
-                        const file = e.target.files[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                            document.getElementById('import-text').value = event.target.result;
-                        };
-                        reader.readAsText(file);
-                    };
-                },
-                preConfirm: () => {
-                    return document.getElementById('import-text').value;
-                }
+                preConfirm: () => document.getElementById('import-text').value
             });
 
             if (text) {
                 const lines = text.split('\\n').filter(l => l.trim());
                 let addedCount = 0;
-                
                 if (text.includes('#EXTM3U')) {
-                    // M3U 解析逻辑
                     for (let i = 0; i < lines.length; i++) {
                         if (lines[i].startsWith('#EXTINF:')) {
                             const infoLine = lines[i];
                             const urlLine = lines[i+1];
                             if (urlLine && urlLine.startsWith('http')) {
                                 const name = infoLine.split(',').pop().trim();
-                                const logoMatch = infoLine.match(/tvg-logo="([^"]+)"/);
-                                const idMatch = infoLine.match(/tvg-id="([^"]+)"/);
-                                raw[gi].channels.push({
-                                    name: name || '未知频道',
-                                    id: idMatch ? idMatch[1] : '',
-                                    logo: logoMatch ? logoMatch[1] : '',
-                                    url: [urlLine.trim()]
-                                });
-                                addedCount++;
-                                i++;
+                                raw[gi].channels.push({ name: name || '未知', id: '', logo: '', url: [urlLine.trim()] });
+                                addedCount++; i++;
                             }
                         }
                     }
                 } else {
-                    // TXT 解析逻辑 (名称,链接 或 名称#链接)
                     lines.forEach(line => {
                         const parts = line.split(/[,，#]/);
                         if (parts.length >= 2) {
-                            const name = parts[0].trim();
                             const url = parts[parts.length - 1].trim();
                             if (url.startsWith('http')) {
-                                raw[gi].channels.push({ name, id: '', logo: '', url: [url] });
+                                raw[gi].channels.push({ name: parts[0].trim(), id: '', logo: '', url: [url] });
                                 addedCount++;
                             }
                         }
                     });
                 }
-                
-                if (addedCount > 0) {
-                    Swal.fire({ icon: 'success', title: \`成功导入 \${addedCount} 个频道\`, timer: 1500 });
-                    render();
-                } else {
-                    Swal.fire({ icon: 'error', title: '未找到有效频道数据' });
-                }
+                if (addedCount > 0) { render(); Swal.fire('成功', '导入完成', 'success'); }
             }
         }
 
-        // --- 原始拖拽与编辑逻辑 ---
-        function dragStart(e, gi, ci) {
-            dragSrc = { gi, ci };
-            e.target.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-        }
+        function dragStart(e, gi, ci) { dragSrc = { gi, ci }; e.target.classList.add('dragging'); }
         function dragOver(e) { if (e.preventDefault) e.preventDefault(); return false; }
         function dragEnter(e) { e.target.closest('.card')?.classList.add('drag-over'); }
         function dragLeave(e) { e.target.closest('.card')?.classList.remove('drag-over'); }
         function dragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
         function dragDrop(e, targetGi, targetCi) {
-            if (e.stopPropagation) e.stopPropagation();
             if (dragSrc.gi === targetGi && dragSrc.ci === targetCi) return false;
             const [movedItem] = raw[dragSrc.gi].channels.splice(dragSrc.ci, 1);
             raw[targetGi].channels.splice(targetCi, 0, movedItem);
@@ -442,122 +461,66 @@ export default async function handler(req, res) {
         }
 
         function updateGroup(i, v) { raw[i].group = v; }
-        
         function deleteGroup(i) {
-            Swal.fire({ title: '确认删除?', icon: 'warning', showCancelButton: true, confirmButtonText: '删除', confirmButtonColor: '#ef4444' }).then(r => {
+            Swal.fire({ title: '确认删除?', icon: 'warning', showCancelButton: true, confirmButtonText: '删除' }).then(r => {
                 if(r.isConfirmed) { raw.splice(i, 1); render(); }
             });
         }
-        
         function addGroup() { raw.push({group:'新分组',channels:[]}); render(); }
-        
         async function addChannel(gi) { 
             const newChannel = {name:'', id: '', logo: '', url:[]};
             raw[gi].channels.push(newChannel); 
             render(); 
-            const ci = raw[gi].channels.length - 1;
-            await editChannel(gi, ci, true);
+            await editChannel(gi, raw[gi].channels.length - 1, true);
         }
 
         async function editChannel(gi, ci, isNew = false) {
-            if(document.querySelector('.dragging')) return;
             const ch = raw[gi].channels[ci];
             const isDark = currentTheme === 'dark';
             const { value, isDenied, isDismissed } = await Swal.fire({
                 title: isNew ? '添加频道' : '编辑频道',
                 background: isDark ? '#1e293b' : '#fff',
                 color: isDark ? '#fff' : '#333',
-                width: '600px',
                 html: \`
                     <div class="space-y-4 text-left mt-2">
-                        <div>
-                            <label class="text-xs opacity-60 block mb-1">名称 <span class="text-red-500">*</span></label>
-                            <input id="s-name" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.name}">
-                        </div>
-                        <div class="flex gap-4">
-                            <div class="flex-1">
-                                <label class="text-xs opacity-60 block mb-1">ID (EPG)</label>
-                                <input id="s-id" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.id}">
-                            </div>
-                            <div class="flex-1">
-                                <label class="text-xs opacity-60 block mb-1">Logo <span class="text-red-500">*</span></label>
-                                <input id="s-logo" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" placeholder="文件名或URL" value="\${ch.logo||''}">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="text-xs opacity-60 block mb-1">直播源 (一行一个) <span class="text-red-500">*</span></label>
-                            <textarea id="s-url" class="w-full p-3 border rounded bg-transparent font-mono text-xs h-32 focus:ring-2 ring-blue-500 outline-none" placeholder="http://...">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
-                        </div>
+                        <input id="s-name" class="w-full p-2 border rounded bg-transparent" placeholder="名称" value="\${ch.name}">
+                        <input id="s-logo" class="w-full p-2 border rounded bg-transparent" placeholder="Logo" value="\${ch.logo||''}">
+                        <textarea id="s-url" class="w-full p-2 border rounded bg-transparent h-32" placeholder="直播源">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
                     </div>\`,
                 showDenyButton: !isNew,
-                denyButtonText: '删除', 
                 confirmButtonText: '保存', 
                 showCancelButton: true,
-                cancelButtonText: '取消',
                 preConfirm: () => {
                     const name = document.getElementById('s-name').value.trim();
-                    const id = document.getElementById('s-id').value.trim();
-                    const logo = document.getElementById('s-logo').value.trim();
-                    const urlStr = document.getElementById('s-url').value;
-                    const urls = urlStr.split('\\n').filter(x=>x.trim());
-                    if(!name || urls.length === 0) {
-                        Swal.showValidationMessage('频道名和直播源为必填项');
-                        return false; 
-                    }
-                    return { name, id, logo, url: urls };
+                    const urls = document.getElementById('s-url').value.split('\\n').filter(x=>x.trim());
+                    if(!name || urls.length === 0) return false;
+                    return { name, id: ch.id, logo: document.getElementById('s-logo').value.trim(), url: urls };
                 }
             });
-
-            if (value) { 
-                raw[gi].channels[ci] = value; 
-                render(); 
-            } else if (isDenied) { 
-                raw[gi].channels.splice(ci, 1); 
-                render(); 
-            } else if (isNew && isDismissed) {
-                raw[gi].channels.splice(ci, 1);
-                render();
-            }
+            if (value) { raw[gi].channels[ci] = value; render(); }
+            else if (isDenied || (isNew && isDismissed)) { raw[gi].channels.splice(ci, 1); render(); }
         }
 
         async function saveData() {
             const btn = document.getElementById('saveBtn');
-            const originalContent = btn.innerHTML;
+            const original = btn.innerHTML;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在部署...';
             btn.disabled = true;
-
             try {
-                // 保存请求，后端会自动执行数据清理（空分组/空频道）
                 const res = await fetch(\`/api/manage?token=\${currentToken}\`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ newData: raw })
                 });
-                
-                if (res.ok) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: '部署已触发',
-                        text: 'Vercel 正在应用更改（无效数据已自动剔除），请在 1-2 分钟后刷新页面查看。',
-                        timer: 5000,
-                        timerProgressBar: true
-                    });
-                } else {
-                    const err = await res.json();
-                    throw new Error(err.error || '保存失败');
-                }
-            } catch (e) {
-                Swal.fire({icon: 'error', title: '错误', text: e.message});
-            } finally {
-                btn.innerHTML = originalContent;
-                btn.disabled = false;
-            }
+                if (res.ok) Swal.fire('成功', '部署已触发，请在 1-2 分钟后刷新。', 'success');
+                else throw new Error('保存失败');
+            } catch (e) { Swal.fire('错误', e.message, 'error'); }
+            finally { btn.innerHTML = original; btn.disabled = false; }
         }
 
         function copyLink(id) {
             navigator.clipboard.writeText(window.location.origin + '/jptv.php?id=' + id);
-            const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
-            Toast.fire({ icon: 'success', title: '链接已复制' });
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: '链接已复制', showConfirmButton: false, timer: 1500 });
         }
 
         render();

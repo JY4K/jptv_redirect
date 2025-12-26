@@ -7,55 +7,56 @@ export default async function handler(req, res) {
   const isAuth = token === config.adminToken;
   const currentVersion = config.currentVersion;
 
-  // --- API: 保存数据并触发完整部署 ---
+  // --- API 逻辑处理 ---
   if (req.method === 'POST') {
     if (!isAuth) return res.status(401).json({ error: '无权操作' });
 
     let { newData } = req.body;
+    if (!Array.isArray(newData)) return res.status(400).json({ error: '数据格式错误' });
 
-    // 检测并删除空的分组或空的频道数据
-    newData = newData.map(g => ({
-      ...g,
-      channels: g.channels.filter(ch => {
-        const hasName = ch.name && ch.name.trim() !== '';
-        const hasUrl = Array.isArray(ch.url) ? ch.url.length > 0 : (ch.url && ch.url.trim() !== '');
-        return hasName && hasUrl;
-      })
-    })).filter(g => {
-      return g.group && g.group.trim() !== '' && g.channels.length > 0;
-    });
+    // 数据清洗：剔除空分组和无效频道
+    newData = newData
+      .map(g => ({
+        ...g,
+        channels: (g.channels || []).filter(ch => {
+          const hasName = ch.name?.trim();
+          const hasUrl = Array.isArray(ch.url) ? ch.url.length > 0 : ch.url?.trim();
+          return hasName && hasUrl;
+        })
+      }))
+      .filter(g => g.group?.trim() && g.channels.length > 0);
 
     const { projectId, token: vToken } = config.platform;
-
-    if (!projectId || !vToken) {
-      return res.status(500).json({ error: '未配置 Vercel API' });
-    }
+    if (!projectId || !vToken) return res.status(500).json({ error: '未配置 Vercel API 参数' });
 
     try {
-      const commonHeaders = { 'Authorization': `Bearer ${vToken}`, 'Content-Type': 'application/json' };
+      const headers = { 'Authorization': `Bearer ${vToken}`, 'Content-Type': 'application/json' };
 
-      const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers: commonHeaders });
-      if (!projectRes.ok) throw new Error('无法获取项目信息，请检查 Project ID');
+      // 1. 获取项目 Git 状态
+      const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers });
+      if (!projectRes.ok) throw new Error('无法连接 Vercel API，请检查 Project ID 或 Token');
       const projectData = await projectRes.json();
 
-      if (!projectData.link || !projectData.link.repoId) {
-        throw new Error('当前项目未连接 Git 仓库，无法自动触发部署。');
+      if (!projectData.link?.repoId) {
+        throw new Error('当前项目未连接 Git 仓库，无法触发自动部署');
       }
 
-      const { repoId, type: repoType } = projectData.link;
+      const repoId = projectData.link.repoId;
+      const repoType = projectData.link.type;
       const gitBranch = projectData.targets?.production?.gitBranch || 'main';
 
-      const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers: commonHeaders });
-      const listData = await listRes.json();
-      const existingVars = listData.envs ? listData.envs.filter(e => e.key === 'CHANNELS_DATA') : [];
+      // 2. 更新环境变量 (先删后增以保证唯一性)
+      const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers });
+      const { envs } = await listRes.json();
+      const existingVars = envs?.filter(e => e.key === 'CHANNELS_DATA') || [];
 
       await Promise.all(existingVars.map(env =>
-        fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${env.id}`, { method: 'DELETE', headers: commonHeaders })
+        fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${env.id}`, { method: 'DELETE', headers })
       ));
 
       const createRes = await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
         method: 'POST',
-        headers: commonHeaders,
+        headers,
         body: JSON.stringify({
           key: 'CHANNELS_DATA',
           value: JSON.stringify(newData),
@@ -64,20 +65,21 @@ export default async function handler(req, res) {
         })
       });
 
-      if (!createRes.ok) throw new Error(`变量创建失败: ${await createRes.text()}`);
+      if (!createRes.ok) throw new Error('环境变量保存失败');
 
+      // 3. 触发重新部署
       const deployRes = await fetch(`https://api.vercel.com/v13/deployments`, {
         method: 'POST',
-        headers: commonHeaders,
+        headers,
         body: JSON.stringify({
           name: 'jptv-update',
           project: projectId,
           target: 'production',
-          gitSource: { type: repoType, repoId: repoId, ref: gitBranch }
+          gitSource: { type: repoType, repoId, ref: gitBranch }
         })
       });
 
-      if (!deployRes.ok) throw new Error(`部署触发失败: ${await deployRes.text()}`);
+      if (!deployRes.ok) throw new Error('部署指令下发失败');
 
       return res.json({ success: true });
     } catch (e) {
@@ -86,7 +88,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // --- UI: 页面渲染 ---
+  // --- UI 渲染 ---
   let channels = [];
   try {
     channels = getChannels();
@@ -105,75 +107,72 @@ export default async function handler(req, res) {
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { transition: background 0.5s ease, color 0.3s ease; }
-        body.theme-light { background: #f3f4f6; color: #1f2937; }
-        .theme-light .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border: 1px solid #e5e7eb; }
-        .theme-light .card { background: rgba(255, 255, 255, 0.9); border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        :root { --accent: #3b82f6; }
+        body { transition: background 0.3s, color 0.3s; }
+        body.theme-light { background: #f8fafc; color: #1e293b; }
         body.theme-dark { background: #0f172a; color: #f1f5f9; }
-        .theme-dark .glass-panel { background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(20px); }
-        .theme-dark .card { background: #1e293b; border: 1px solid #334155; }
-        .card { cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; position: relative; }
-        .card.dragging { opacity: 0.4; border: 2px dashed #3b82f6; }
-        .card.drag-over { border: 2px solid #3b82f6; transform: scale(1.05); z-index: 10; }
-        .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; transition: transform 0.3s; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); pointer-events: none; }
-        .footer-disclaimer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(0,0,0,0.1); text-align: center; font-size: 0.85rem; opacity: 0.7; }
+        .glass-panel { 
+            background: rgba(var(--bg-rgb), 0.7); 
+            backdrop-filter: blur(12px); 
+            border: 1px solid rgba(128,128,128,0.1); 
+        }
+        .theme-light { --bg-rgb: 255, 255, 255; }
+        .theme-dark { --bg-rgb: 30, 41, 59; }
+        .card { 
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+            aspect-ratio: 16/10;
+        }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        .card.dragging { opacity: 0.5; transform: scale(0.9); border: 2px dashed var(--accent); }
+        .card.drag-over { border: 2px solid var(--accent); background: rgba(59, 130, 246, 0.1); }
+        .channel-logo { max-height: 50px; width: auto; object-fit: contain; }
     </style>
 </head>
-<body class="theme-light min-h-screen p-4 md:p-8">
-    <div class="max-w-[1600px] mx-auto">
-        <header class="flex flex-col lg:flex-row justify-between items-center mb-8 glass-panel p-6 rounded-2xl gap-4 shadow-sm">
+<body class="theme-light min-h-screen pb-12">
+    <div class="max-w-7xl mx-auto px-4 pt-8">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8 glass-panel p-6 rounded-2xl gap-4">
             <div class="flex items-center gap-4">
                 <div class="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
                     <i class="fas fa-satellite-dish text-xl"></i>
                 </div>
                 <div>
-                    <h1 class="text-2xl font-bold">JPTV 控制台</h1>
-                    <div class="flex gap-2 text-xs font-mono mt-1 opacity-70 items-center">
-                        <span id="version-display">v${currentVersion}</span>
-                        ${isAuth ? '<span class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded">管理员</span>' : ''}
-                    </div>
+                    <h1 class="text-2xl font-bold tracking-tight">JPTV 控制台</h1>
+                    <div id="version-display" class="text-xs font-mono opacity-60">v${currentVersion}</div>
                 </div>
             </div>
             
-            <div class="flex flex-wrap items-center justify-center gap-3">
-                <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-current/10 hover:bg-current/20 flex items-center justify-center transition">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleTheme()" class="p-2.5 rounded-xl bg-gray-500/10 hover:bg-gray-500/20 transition">
                     <i class="fas fa-sun" id="themeIcon"></i>
                 </button>
-                
                 ${isAuth ? `
-                <div class="flex items-center gap-2 bg-black/5 dark:bg-white/5 p-1 rounded-xl">
-                    <button onclick="exportData()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium">
-                        <i class="fas fa-download"></i> 导出
-                    </button>
-                    <button onclick="globalImport()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium">
-                        <i class="fas fa-upload"></i> 导入
-                    </button>
-                </div>
-                <button onclick="saveData()" id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition flex items-center gap-2">
-                    <i class="fas fa-cloud-upload-alt"></i> 保存并部署
+                <div class="h-8 w-[1px] bg-gray-500/20 mx-2"></div>
+                <button onclick="exportData()" class="p-2.5 rounded-xl hover:bg-gray-500/10 transition" title="备份数据">
+                    <i class="fas fa-download"></i>
+                </button>
+                <button onclick="globalImport()" class="p-2.5 rounded-xl hover:bg-gray-500/10 transition" title="导入数据">
+                    <i class="fas fa-upload"></i>
+                </button>
+                <button onclick="saveData()" id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg transition flex items-center gap-2">
+                    <i class="fas fa-cloud-upload-alt"></i> 保存部署
                 </button>
                 ` : `
-                <div class="flex gap-2">
-                    <a href="/ipv6.m3u" target="_blank" class="px-5 py-2 rounded-xl font-bold bg-current/10 hover:bg-current/20 transition flex items-center gap-2 text-sm"><i class="fas fa-file-code"></i> M3U</a>
-                    <a href="/ipv6.txt" target="_blank" class="px-5 py-2 rounded-xl font-bold bg-current/10 hover:bg-current/20 transition flex items-center gap-2 text-sm"><i class="fas fa-file-alt"></i> TXT</a>
-                </div>
+                <a href="/ipv6.m3u" class="bg-gray-500/10 hover:bg-gray-500/20 px-4 py-2 rounded-lg text-sm font-medium transition">M3U 订阅</a>
                 `}
             </div>
         </header>
 
-        <div id="app" class="space-y-8 pb-12"></div>
+        <main id="app" class="space-y-8"></main>
         
         ${isAuth ? `
-        <div class="py-10 text-center">
-             <button onclick="addGroup()" class="px-8 py-4 rounded-2xl border-2 border-dashed border-current/20 hover:border-blue-500 text-current/50 hover:text-blue-500 transition font-bold flex items-center gap-2 mx-auto text-lg">
+        <div class="mt-12 text-center">
+            <button onclick="addGroup()" class="px-8 py-4 rounded-2xl border-2 border-dashed border-gray-400/30 hover:border-blue-500 hover:text-blue-500 transition-all font-bold flex items-center gap-2 mx-auto">
                 <i class="fas fa-plus-circle"></i> 添加新分组
             </button>
         </div>
         ` : `
-        <footer class="footer-disclaimer">
-            <p class="mb-2">这是一个基于 JS 的直播重定向服务器，仅支持 Vercel 部署。本项目仅为个人爱好开发，代码开源。</p>
-            <p class="mb-2">免责声明：本项目仅用于技术学习与交流，所有频道资源均来源于网络，本项目不存储任何视频文件。</p>
-            <p>Project Address: <a href="${config.projectUrl}" target="_blank" class="text-blue-500 hover:underline">GitHub</a></p>
+        <footer class="mt-20 pt-8 border-t border-gray-500/10 text-center text-sm opacity-50">
+            <p>© JPTV - 仅供技术交流学习使用</p>
         </footer>
         `}
     </div>
@@ -182,341 +181,257 @@ export default async function handler(req, res) {
         let raw = ${JSON.stringify(channels)};
         const isAuth = ${isAuth};
         const currentToken = "${token}";
-        const currentVer = "${currentVersion}";
         const repoApi = "${config.repoApiUrl}";
         
         let dragSrc = null;
 
-        async function checkVersion() {
-            try {
-                const res = await fetch(repoApi);
-                if(res.ok) {
-                    const data = await res.json();
-                    const latest = data.tag_name ? data.tag_name.replace('v', '') : currentVer;
-                    const el = document.getElementById('version-display');
-                    if (latest !== currentVer) {
-                        el.innerHTML = \`v\${currentVer} <span class="text-blue-500 ml-1" title="最新版本: v\${latest}">● update available</span>\`;
-                    } else {
-                        el.innerHTML = \`v\${currentVer} <span class="text-green-500 ml-1">● latest</span>\`;
-                    }
-                }
-            } catch(e) { console.log('Version check failed'); }
-        }
-        checkVersion();
-
-        let currentTheme = localStorage.getItem('jptv_theme') || 'light';
-        function applyTheme() {
-            document.body.className = 'theme-' + currentTheme + ' min-h-screen p-4 md:p-8';
-            document.getElementById('themeIcon').className = currentTheme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
-        }
-        function toggleTheme() {
-            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-            localStorage.setItem('jptv_theme', currentTheme);
-            applyTheme();
-        }
-        applyTheme();
-
+        // --- 核心渲染函数 ---
         function render() {
             const app = document.getElementById('app');
-            if (!raw || raw.length === 0) {
-                app.innerHTML = '<div class="text-center py-20 opacity-50 text-xl">暂无数据</div>';
+            if (!raw.length) {
+                app.innerHTML = '<div class="text-center py-20 opacity-30 text-xl italic">暂无频道数据</div>';
                 return;
             }
 
             app.innerHTML = raw.map((g, gi) => \`
-                <div class="glass-panel rounded-2xl p-6 animate-fade-in">
-                    <div class="flex items-center justify-between mb-6 border-b border-current/10 pb-4">
-                        <div class="flex-1">
+                <section class="glass-panel rounded-2xl p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-6 border-b border-gray-500/10 pb-4">
+                        <div class="flex-1 max-w-md">
                             \${isAuth 
-                                ? \`<input class="text-xl font-bold bg-transparent outline-none border-b-2 border-transparent focus:border-blue-500 transition w-full placeholder-current/30" 
-                                    value="\${g.group}" 
-                                    onchange="updateGroup(\${gi}, this.value)" 
-                                    placeholder="分组名称">\` 
-                                : \`<h2 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-layer-group text-blue-500"></i> \${g.group}</h2>\`
+                                ? \`<input class="text-xl font-bold bg-transparent outline-none border-b-2 border-transparent focus:border-blue-500 transition w-full" 
+                                    value="\${g.group}" onchange="raw[\${gi}].group = this.value" placeholder="分组名称">\` 
+                                : \`<h2 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-folder text-blue-500"></i> \${g.group}</h2>\`
                             }
                         </div>
                         \${isAuth ? \`
                         <div class="flex items-center gap-1">
-                            <button onclick="moveGroup(\${gi}, -1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === 0 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-up"></i></button>
-                            <button onclick="moveGroup(\${gi}, 1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === raw.length - 1 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-down"></i></button>
-                            <button onclick="deleteGroup(\${gi})" class="text-red-400 hover:bg-red-500/10 p-2 rounded transition ml-1"><i class="fas fa-trash-alt"></i></button>
+                            <button onclick="moveGroup(\${gi}, -1)" class="p-2 hover:text-blue-500 transition \${gi === 0 ? 'invisible' : ''}"><i class="fas fa-chevron-up"></i></button>
+                            <button onclick="moveGroup(\${gi}, 1)" class="p-2 hover:text-blue-500 transition \${gi === raw.length - 1 ? 'invisible' : ''}"><i class="fas fa-chevron-down"></i></button>
+                            <button onclick="deleteGroup(\${gi})" class="p-2 hover:text-red-500 transition ml-2"><i class="fas fa-trash-alt"></i></button>
                         </div>
                         \` : ''}
                     </div>
 
-                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         \${g.channels.map((ch, ci) => \`
-                            <div class="card rounded-xl group" 
-                                 \${isAuth ? \`draggable="true" 
-                                    ondragstart="dragStart(event, \${gi}, \${ci})" 
-                                    ondragover="dragOver(event)" 
-                                    ondragenter="dragEnter(event)" 
-                                    ondragleave="dragLeave(event)" 
-                                    ondrop="dragDrop(event, \${gi}, \${ci})" 
-                                    ondragend="dragEnd(event)"\` : ''}
-                                 onclick="\${isAuth ? \`editChannel(\${gi},\${ci})\` : \`copyLink('\${ch.id}')\`}">
+                            <div class="card glass-panel rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer relative"
+                                \${isAuth ? \`draggable="true" ondragstart="dragStart(event,\${gi},\${ci})" ondragover="e=>e.preventDefault()" ondrop="dragDrop(event,\${gi},\${ci})" ondragend="dragEnd(event)"\` : ''}
+                                onclick="\${isAuth ? \`editChannel(\${gi},\${ci})\` : \`copyLink('\${ch.id}')\`}">
                                 
-                                <img src="\${getLogoUrl(ch.logo)}" 
-                                     class="channel-logo" 
-                                     onerror="this.style.display='none';this.nextElementSibling.style.display='block'" 
-                                     loading="lazy">
-                                <i class="fas fa-tv text-4xl mb-3 opacity-20 hidden text-gray-500"></i>
+                                <img src="\${getLogoUrl(ch.logo)}" class="channel-logo mb-3" 
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImdyYXkiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cmVjdCB4PSIyIiB5PSI3IiB3aWR0aD0iMjAiIGhlaWdodD0iMTUiIHJ4PSIyIi8+PHBhdGggZD0iTTE3IDJMMTIgN0w3IDIiLz48L3N2Zz4='">
                                 
-                                <div class="text-center w-full px-2 z-10 pointer-events-none">
-                                    <h3 class="font-bold text-sm truncate" title="\${ch.name}">\${ch.name}</h3>
-                                </div>
+                                <span class="text-sm font-bold truncate w-full px-1">\${ch.name}</span>
+                                \${!isAuth ? '<div class="absolute inset-0 bg-blue-500/0 hover:bg-blue-500/5 transition-all rounded-xl"></div>' : ''}
                             </div>
                         \`).join('')}
                         
                         \${isAuth ? \`
-                        <div onclick="addChannel(\${gi})" class="card rounded-xl border-dashed bg-transparent hover:bg-current/5 opacity-60 hover:opacity-100 text-blue-500">
-                            <i class="fas fa-plus text-3xl mb-2"></i>
-                            <span class="font-bold text-sm">添加频道</span>
+                        <div onclick="addChannel(\${gi})" class="card border-2 border-dashed border-gray-400/20 hover:border-blue-500/50 flex flex-col items-center justify-center text-blue-500/60 hover:text-blue-500">
+                            <i class="fas fa-plus text-2xl"></i>
                         </div>
                         \` : ''}
                     </div>
-                </div>
+                </section>
             \`).join('');
         }
 
-        // --- 导出 JPTV 数据 ---
-        function exportData() {
-            const dataStr = JSON.stringify(raw, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = \`jptv_backup_\${new Date().toISOString().slice(0,10)}.json\`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            Swal.fire({ icon: 'success', title: '数据导出成功', text: '请妥善保管备份文件', timer: 1500 });
-        }
-
-        // --- 全局导入 (支持 JPTV JSON, M3U, TXT) ---
-        async function globalImport() {
-            const isDark = currentTheme === 'dark';
-            const { value: text } = await Swal.fire({
-                title: '批量导入数据',
-                background: isDark ? '#1e293b' : '#fff',
-                color: isDark ? '#fff' : '#333',
-                html: \`
-                    <div class="text-left space-y-4">
-                        <p class="text-xs opacity-60">支持 JPTV JSON 备份文件、M3U 内容或 TXT (名称,链接)。</p>
-                        <textarea id="import-text" class="w-full h-48 p-2 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500" placeholder="粘贴内容于此..."></textarea>
-                        <div class="flex items-center gap-2">
-                            <label class="text-xs font-bold">文件选择:</label>
-                            <input type="file" id="import-file" accept=".json,.txt,.m3u" class="text-xs">
-                        </div>
-                    </div>
-                \`,
-                showCancelButton: true,
-                confirmButtonText: '确认导入',
-                didOpen: () => {
-                    const fileInput = document.getElementById('import-file');
-                    fileInput.onchange = (e) => {
-                        const file = e.target.files[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                            document.getElementById('import-text').value = event.target.result;
-                        };
-                        reader.readAsText(file);
-                    };
-                },
-                preConfirm: () => document.getElementById('import-text').value
-            });
-
-            if (!text) return;
-
-            try {
-                // 1. 尝试解析为 JPTV JSON
-                if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
-                    const jsonData = JSON.parse(text);
-                    const list = Array.isArray(jsonData) ? jsonData : (jsonData.channels ? [jsonData] : null);
-                    if (list && list[0].group) {
-                        const { isConfirmed } = await Swal.fire({
-                            title: '检测到 JPTV 格式',
-                            text: '是否替换当前所有数据？(取消则追加)',
-                            icon: 'question',
-                            showCancelButton: true,
-                            confirmButtonText: '替换',
-                            cancelButtonText: '追加'
-                        });
-                        if (isConfirmed) raw = list;
-                        else raw = [...raw, ...list];
-                        render();
-                        return;
-                    }
-                }
-
-                // 2. 尝试解析为 M3U 或 TXT
-                const lines = text.split('\\n').filter(l => l.trim());
-                let addedChannels = [];
-                
-                if (text.includes('#EXTM3U')) {
-                    for (let i = 0; i < lines.length; i++) {
-                        if (lines[i].startsWith('#EXTINF:')) {
-                            const infoLine = lines[i];
-                            const urlLine = lines[i+1];
-                            if (urlLine && urlLine.startsWith('http')) {
-                                const name = infoLine.split(',').pop().trim();
-                                const logoMatch = infoLine.match(/tvg-logo="([^"]+)"/);
-                                const idMatch = infoLine.match(/tvg-id="([^"]+)"/);
-                                addedChannels.push({
-                                    name: name || '未知频道',
-                                    id: idMatch ? idMatch[1] : '',
-                                    logo: logoMatch ? logoMatch[1] : '',
-                                    url: [urlLine.trim()]
-                                });
-                                i++;
-                            }
-                        }
-                    }
-                } else {
-                    lines.forEach(line => {
-                        const parts = line.split(/[,，#]/);
-                        if (parts.length >= 2) {
-                            const name = parts[0].trim();
-                            const url = parts[parts.length - 1].trim();
-                            if (url.startsWith('http')) {
-                                addedChannels.push({ name, id: '', logo: '', url: [url] });
-                            }
-                        }
-                    });
-                }
-
-                if (addedChannels.length > 0) {
-                    raw.push({
-                        group: '导入数据_' + new Date().toLocaleTimeString(),
-                        channels: addedChannels
-                    });
-                    render();
-                    Swal.fire({ icon: 'success', title: \`成功导入 \${addedChannels.length} 个频道\` });
-                } else {
-                    throw new Error('未识别到有效格式');
-                }
-            } catch (e) {
-                Swal.fire({ icon: 'error', title: '导入失败', text: '格式不支持或数据损坏' });
-            }
-        }
-
-        // --- 拖拽与常规功能 ---
-        function dragStart(e, gi, ci) { dragSrc = { gi, ci }; e.target.classList.add('dragging'); }
-        function dragOver(e) { if (e.preventDefault) e.preventDefault(); return false; }
-        function dragEnter(e) { e.target.closest('.card')?.classList.add('drag-over'); }
-        function dragLeave(e) { e.target.closest('.card')?.classList.remove('drag-over'); }
-        function dragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
-        function dragDrop(e, targetGi, targetCi) {
-            if (e.stopPropagation) e.stopPropagation();
-            if (dragSrc.gi === targetGi && dragSrc.ci === targetCi) return false;
-            const [movedItem] = raw[dragSrc.gi].channels.splice(dragSrc.ci, 1);
-            raw[targetGi].channels.splice(targetCi, 0, movedItem);
-            render();
-            return false;
-        }
-
+        // --- 逻辑功能 ---
         function getLogoUrl(logo) {
             if (!logo) return '';
             if (logo.startsWith('http')) return logo;
-            return 'https://gcore.jsdelivr.net/gh/fanmingming/live/tv/' + logo + '.png';
+            return \`https://gcore.jsdelivr.net/gh/fanmingming/live/tv/\${logo}.png\`;
         }
 
-        function updateGroup(i, v) { raw[i].group = v; }
-        function deleteGroup(i) {
-            Swal.fire({ title: '确认删除分组?', icon: 'warning', showCancelButton: true, confirmButtonText: '删除', confirmButtonColor: '#ef4444' }).then(r => {
-                if(r.isConfirmed) { raw.splice(i, 1); render(); }
-            });
+        function moveGroup(index, direction) {
+            const target = index + direction;
+            if (target < 0 || target >= raw.length) return;
+            [raw[index], raw[target]] = [raw[target], raw[index]];
+            render();
         }
-        function addGroup() { raw.push({group:'新分组',channels:[]}); render(); }
-        async function addChannel(gi) { 
-            const newChannel = {name:'', id: '', logo: '', url:[]};
-            raw[gi].channels.push(newChannel); 
-            render(); 
-            await editChannel(gi, raw[gi].channels.length - 1, true);
+
+        function deleteGroup(i) {
+            Swal.fire({
+                title: '确认删除该分组?',
+                text: "分组下的所有频道也将被删除",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                confirmButtonText: '确定删除'
+            }).then(r => { if(r.isConfirmed) { raw.splice(i, 1); render(); } });
+        }
+
+        function addGroup() {
+            raw.push({ group: '新分组', channels: [] });
+            render();
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         }
 
         async function editChannel(gi, ci, isNew = false) {
             const ch = raw[gi].channels[ci];
-            const isDark = currentTheme === 'dark';
-            const { value, isDenied, isDismissed } = await Swal.fire({
+            const { value, isDenied } = await Swal.fire({
                 title: isNew ? '添加频道' : '编辑频道',
-                background: isDark ? '#1e293b' : '#fff',
-                color: isDark ? '#fff' : '#333',
-                width: '600px',
                 html: \`
-                    <div class="space-y-4 text-left mt-2">
-                        <div>
-                            <label class="text-xs opacity-60 block mb-1">名称 *</label>
-                            <input id="s-name" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.name}">
+                    <div class="text-left space-y-3 pt-4">
+                        <input id="swal-name" class="swal2-input !m-0 w-full" placeholder="频道名称" value="\${ch.name}">
+                        <div class="flex gap-2">
+                            <input id="swal-id" class="swal2-input !m-0 flex-1" placeholder="EPG ID" value="\${ch.id}">
+                            <input id="swal-logo" class="swal2-input !m-0 flex-1" placeholder="Logo 文件名/URL" value="\${ch.logo}">
                         </div>
-                        <div class="flex gap-4">
-                            <div class="flex-1">
-                                <label class="text-xs opacity-60 block mb-1">ID (EPG)</label>
-                                <input id="s-id" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" value="\${ch.id}">
-                            </div>
-                            <div class="flex-1">
-                                <label class="text-xs opacity-60 block mb-1">Logo *</label>
-                                <input id="s-logo" class="w-full p-2.5 border rounded bg-transparent focus:ring-2 ring-blue-500 outline-none" placeholder="文件名或URL" value="\${ch.logo||''}">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="text-xs opacity-60 block mb-1">直播源 (一行一个) *</label>
-                            <textarea id="s-url" class="w-full p-3 border rounded bg-transparent font-mono text-xs h-32 focus:ring-2 ring-blue-500 outline-none" placeholder="http://...">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
-                        </div>
+                        <textarea id="swal-url" class="swal2-textarea !m-0 w-full h-32" placeholder="直播源 (一行一个)">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
                     </div>\`,
                 showDenyButton: !isNew,
-                denyButtonText: '删除', 
-                confirmButtonText: '保存', 
+                denyButtonText: '删除频道',
+                confirmButtonText: '确定',
                 showCancelButton: true,
+                focusConfirm: false,
                 preConfirm: () => {
-                    const name = document.getElementById('s-name').value.trim();
-                    const urls = document.getElementById('s-url').value.split('\\n').filter(x=>x.trim());
-                    if(!name || urls.length === 0) { Swal.showValidationMessage('必填项不能为空'); return false; }
-                    return { name, id: document.getElementById('s-id').value.trim(), logo: document.getElementById('s-logo').value.trim(), url: urls };
+                    const name = document.getElementById('swal-name').value.trim();
+                    const url = document.getElementById('swal-url').value.split('\\n').filter(x => x.trim());
+                    if (!name || !url.length) return Swal.showValidationMessage('名称和链接不能为空');
+                    return { 
+                        name, 
+                        id: document.getElementById('swal-id').value.trim(), 
+                        logo: document.getElementById('swal-logo').value.trim(), 
+                        url 
+                    };
                 }
             });
 
             if (value) { raw[gi].channels[ci] = value; render(); }
             else if (isDenied) { raw[gi].channels.splice(ci, 1); render(); }
-            else if (isNew && isDismissed) { raw[gi].channels.splice(ci, 1); render(); }
+            else if (isNew) { raw[gi].channels.splice(ci, 1); render(); }
         }
 
+        function addChannel(gi) {
+            raw[gi].channels.push({ name: '', id: '', logo: '', url: [] });
+            editChannel(gi, raw[gi].channels.length - 1, true);
+        }
+
+        // --- 拖拽排序 ---
+        function dragStart(e, gi, ci) { 
+            dragSrc = { gi, ci }; 
+            e.target.classList.add('dragging'); 
+        }
+        function dragEnd(e) { 
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('dragging', 'drag-over')); 
+        }
+        function dragDrop(e, tGi, tCi) {
+            e.preventDefault();
+            if (dragSrc.gi === tGi && dragSrc.ci === tCi) return;
+            const [item] = raw[dragSrc.gi].channels.splice(dragSrc.ci, 1);
+            raw[tGi].channels.splice(tCi, 0, item);
+            render();
+        }
+
+        // --- 数据交换 ---
         async function saveData() {
             const btn = document.getElementById('saveBtn');
-            const original = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 部署中...';
+            const originalHtml = btn.innerHTML;
             btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> 处理中...';
 
             try {
                 const res = await fetch(\`/api/manage?token=\${currentToken}\`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ newData: raw })
                 });
-                
+                const data = await res.json();
                 if (res.ok) {
-                    Swal.fire({ icon: 'success', title: '部署已触发', text: '请等待 1-2 分钟后刷新查看效果。', timer: 5000 });
+                    Swal.fire('已触发部署', '环境更新成功，Vercel 正在重新构建，请 1-2 分钟后刷新。', 'success');
                 } else {
-                    const err = await res.json();
-                    throw new Error(err.error || '保存失败');
+                    throw new Error(data.error);
                 }
             } catch (e) {
-                Swal.fire({icon: 'error', title: '错误', text: e.message});
+                Swal.fire('保存失败', e.message, 'error');
             } finally {
-                btn.innerHTML = original;
                 btn.disabled = false;
+                btn.innerHTML = originalHtml;
             }
         }
 
         function copyLink(id) {
-            navigator.clipboard.writeText(window.location.origin + '/jptv.php?id=' + id);
-            const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
-            Toast.fire({ icon: 'success', title: '链接已复制' });
+            const url = \`\${window.location.origin}/jptv.php?id=\${id}\`;
+            navigator.clipboard.writeText(url).then(() => {
+                const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
+                Toast.fire({ icon: 'success', title: '链接已复制' });
+            });
         }
 
+        // --- 导入导出 ---
+        function exportData() {
+            const blob = new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = \`jptv_backup_\${new Date().getTime()}.json\`;
+            a.click();
+        }
+
+        async function globalImport() {
+            const { value: text } = await Swal.fire({
+                title: '导入数据',
+                input: 'textarea',
+                inputPlaceholder: '在此粘贴 M3U 内容或 JPTV 备份 JSON...',
+                showCancelButton: true,
+                confirmButtonText: '识别并导入'
+            });
+
+            if (!text) return;
+
+            try {
+                if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
+                    const parsed = JSON.parse(text);
+                    raw = Array.isArray(parsed) ? parsed : [parsed];
+                    render();
+                    Swal.fire('成功', 'JSON 数据已恢复', 'success');
+                } else if (text.includes('#EXTM3U')) {
+                    // 简易 M3U 解析
+                    const lines = text.split('\\n');
+                    const channels = [];
+                    for(let i=0; i<lines.length; i++) {
+                        if(lines[i].startsWith('#EXTINF')) {
+                            const name = lines[i].split(',').pop().trim();
+                            const logo = lines[i].match(/tvg-logo="([^"]+)"/)?.[1] || '';
+                            const id = lines[i].match(/tvg-id="([^"]+)"/)?.[1] || '';
+                            const url = lines[i+1]?.trim();
+                            if(url && url.startsWith('http')) {
+                                channels.push({ name, id, logo, url: [url] });
+                                i++;
+                            }
+                        }
+                    }
+                    raw.push({ group: '导入分组', channels });
+                    render();
+                    Swal.fire('成功', \`已从 M3U 导入 \${channels.length} 个频道\`, 'success');
+                }
+            } catch(e) { Swal.fire('错误', '无效的数据格式', 'error'); }
+        }
+
+        // --- 主题控制 ---
+        function toggleTheme() {
+            const isDark = document.body.classList.toggle('theme-dark');
+            document.body.classList.toggle('theme-light', !isDark);
+            document.getElementById('themeIcon').className = isDark ? 'fas fa-moon' : 'fas fa-sun';
+            localStorage.setItem('jptv_theme', isDark ? 'dark' : 'light');
+        }
+
+        // 初始化
+        if (localStorage.getItem('jptv_theme') === 'dark') toggleTheme();
         render();
+
+        // 检查版本
+        (async () => {
+            try {
+                const res = await fetch(repoApi);
+                const data = await res.json();
+                const latest = data.tag_name?.replace('v', '');
+                if (latest && latest !== "${currentVersion}") {
+                    document.getElementById('version-display').innerHTML += \` <span class="text-blue-500 underline cursor-help" title="最新版本 v\${latest}">● 有更新</span>\`;
+                }
+            } catch(e){}
+        })();
     </script>
 </body>
 </html>

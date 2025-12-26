@@ -429,6 +429,18 @@ export default async function handler(req, res) {
                 if(r.isConfirmed) { raw.splice(i, 1); render(); }
             });
         }
+        // --- 修复：添加缺失的分组移动功能 ---
+        function moveGroup(i, dir) {
+            const target = i + dir;
+            // 边界检查（尽管 UI 上已经禁用了首尾按钮，但逻辑上做个保护）
+            if (target >= 0 && target < raw.length) {
+                // 交换数组元素位置
+                [raw[i], raw[target]] = [raw[target], raw[i]];
+                // 重新渲染页面
+                render();
+            }
+        }
+        
         function addGroup() { raw.push({group:'新分组',channels:[]}); render(); }
         async function addChannel(gi) { 
             const newChannel = {name:'', id: '', logo: '', url:[]};

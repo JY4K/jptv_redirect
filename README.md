@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./logo/jptv.png" alt="Clash" width="128" style="border-radius: 16px;" />
+  <img src="./public/jptv.png" alt="Clash" width="128" style="border-radius: 16px;" />
 </div>
 
 <h2 align="center">

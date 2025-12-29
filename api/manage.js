@@ -7,52 +7,56 @@ export default async function handler(req, res) {
   const isAuth = token === config.adminToken;
   const currentVersion = config.currentVersion;
 
-  // --- API: 保存数据并触发完整部署 ---
+  // --- API: 保存数据并触发部署 ---
   if (req.method === 'POST') {
     if (!isAuth) return res.status(401).json({ error: '无权操作' });
 
     let { newData } = req.body;
 
-    // 检测并删除空的分组或空的频道数据
-    newData = newData.map(g => ({
-      ...g,
-      channels: g.channels.filter(ch => {
-        const hasName = ch.name && ch.name.trim() !== '';
-        const hasUrl = Array.isArray(ch.url) ? ch.url.length > 0 : (ch.url && ch.url.trim() !== '');
-        return hasName && hasUrl;
-      })
-    })).filter(g => {
-      return g.group && g.group.trim() !== '' && g.channels.length > 0;
-    });
+    // 数据清洗：移除空分组和无效频道
+    if (Array.isArray(newData)) {
+        newData = newData.map(g => ({
+        ...g,
+        channels: Array.isArray(g.channels) ? g.channels.filter(ch => {
+            const hasName = ch.name && ch.name.trim() !== '';
+            const hasUrl = Array.isArray(ch.url) ? ch.url.length > 0 : (ch.url && ch.url.trim() !== '');
+            return hasName && hasUrl;
+        }) : []
+        })).filter(g => {
+        return g.group && g.group.trim() !== '' && g.channels.length > 0;
+        });
+    }
 
     const { projectId, token: vToken } = config.platform;
 
     if (!projectId || !vToken) {
-      return res.status(500).json({ error: '未配置 Vercel API' });
+      return res.status(500).json({ error: '未配置 Vercel API 环境变量' });
     }
 
     try {
       const commonHeaders = { 'Authorization': `Bearer ${vToken}`, 'Content-Type': 'application/json' };
 
+      // 1. 获取项目信息
       const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers: commonHeaders });
-      if (!projectRes.ok) throw new Error('无法获取项目信息，请检查 Project ID');
+      if (!projectRes.ok) throw new Error('无法获取项目信息');
       const projectData = await projectRes.json();
 
       if (!projectData.link || !projectData.link.repoId) {
-        throw new Error('当前项目未连接 Git 仓库，无法自动触发部署。');
+        throw new Error('项目未连接 Git 仓库，无法触发自动部署');
       }
 
-      const { repoId, type: repoType } = projectData.link;
-      const gitBranch = projectData.targets?.production?.gitBranch || 'main';
-
+      // 2. 更新环境变量 CHANNELS_DATA
       const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers: commonHeaders });
       const listData = await listRes.json();
-      const existingVars = listData.envs ? listData.envs.filter(e => e.key === 'CHANNELS_DATA') : [];
+      // 查找旧变量 ID
+      const targetEnvIds = listData.envs ? listData.envs.filter(e => e.key === 'CHANNELS_DATA').map(e => e.id) : [];
 
-      await Promise.all(existingVars.map(env =>
-        fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${env.id}`, { method: 'DELETE', headers: commonHeaders })
+      // 删除旧变量
+      await Promise.all(targetEnvIds.map(id =>
+        fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${id}`, { method: 'DELETE', headers: commonHeaders })
       ));
 
+      // 创建新变量
       const createRes = await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
         method: 'POST',
         headers: commonHeaders,
@@ -64,8 +68,9 @@ export default async function handler(req, res) {
         })
       });
 
-      if (!createRes.ok) throw new Error(`变量创建失败: ${await createRes.text()}`);
+      if (!createRes.ok) throw new Error(`环境变量更新失败: ${await createRes.text()}`);
 
+      // 3. 触发重新部署
       const deployRes = await fetch(`https://api.vercel.com/v13/deployments`, {
         method: 'POST',
         headers: commonHeaders,
@@ -73,7 +78,11 @@ export default async function handler(req, res) {
           name: 'jptv-update',
           project: projectId,
           target: 'production',
-          gitSource: { type: repoType, repoId: repoId, ref: gitBranch }
+          gitSource: {
+            type: projectData.link.type,
+            repoId: projectData.link.repoId,
+            ref: projectData.targets?.production?.gitBranch || 'main'
+          }
         })
       });
 
@@ -94,6 +103,7 @@ export default async function handler(req, res) {
     console.error("Data load error:", e);
   }
 
+  // UI HTML 代码保持原样，仅做字符串嵌入
   const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -279,7 +289,6 @@ export default async function handler(req, res) {
             \`).join('');
         }
 
-        // --- 导出 JPTV 数据 ---
         function exportData() {
             const dataStr = JSON.stringify(raw, null, 2);
             const blob = new Blob([dataStr], { type: 'application/json' });
@@ -294,7 +303,6 @@ export default async function handler(req, res) {
             Swal.fire({ icon: 'success', title: '数据导出成功', text: '请妥善保管备份文件', timer: 1500 });
         }
 
-        // --- 全局导入 (支持 JPTV JSON, M3U, TXT) ---
         async function globalImport() {
             const isDark = currentTheme === 'dark';
             const { value: text } = await Swal.fire({
@@ -331,7 +339,6 @@ export default async function handler(req, res) {
             if (!text) return;
 
             try {
-                // 1. 尝试解析为 JPTV JSON
                 if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
                     const jsonData = JSON.parse(text);
                     const list = Array.isArray(jsonData) ? jsonData : (jsonData.channels ? [jsonData] : null);
@@ -351,7 +358,6 @@ export default async function handler(req, res) {
                     }
                 }
 
-                // 2. 尝试解析为 M3U 或 TXT
                 const lines = text.split('\\n').filter(l => l.trim());
                 let addedChannels = [];
                 
@@ -402,7 +408,6 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- 拖拽与常规功能 ---
         function dragStart(e, gi, ci) { dragSrc = { gi, ci }; e.target.classList.add('dragging'); }
         function dragOver(e) { if (e.preventDefault) e.preventDefault(); return false; }
         function dragEnter(e) { e.target.closest('.card')?.classList.add('drag-over'); }
@@ -429,14 +434,10 @@ export default async function handler(req, res) {
                 if(r.isConfirmed) { raw.splice(i, 1); render(); }
             });
         }
-        // --- 修复：添加缺失的分组移动功能 ---
         function moveGroup(i, dir) {
             const target = i + dir;
-            // 边界检查（尽管 UI 上已经禁用了首尾按钮，但逻辑上做个保护）
             if (target >= 0 && target < raw.length) {
-                // 交换数组元素位置
                 [raw[i], raw[target]] = [raw[target], raw[i]];
-                // 重新渲染页面
                 render();
             }
         }

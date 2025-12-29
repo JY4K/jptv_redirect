@@ -1,12 +1,9 @@
 export default {
-  // 当前版本号 (手动维护，避免读取 package.json 导致崩溃)
-  currentVersion: '1.3.0',
+  // 当前版本号
+  currentVersion: '1.2.0',
 
-  // 管理员 Token，部署时在 Vercel 环境变量设置
+  // 管理员 Token (Vercel 环境变量优先)
   adminToken: process.env.ADMIN_TOKEN || '123456',
-
-  // 默认后的备用视频文件名 (位于 public 文件夹下)
-  fallbackFileName: '测试卡.mp4',
 
   // 频道 Logo 基础路径
   logoBaseUrl: 'https://gcore.jsdelivr.net/gh/fanmingming/live/tv/',

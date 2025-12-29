@@ -1,6 +1,6 @@
 {
-  "name": "jptv-pro",
-  "version": "4.1.0",
+  "name": "jptv-redirect",
+  "version": "4.2.0",
   "type": "module",
   "dependencies": {
     "node-fetch": "^3.3.2"

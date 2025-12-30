@@ -18,6 +18,8 @@ export default async function handler(req, res) {
             txtContent.push(`${ch.name},${baseUrl}/jptv.php?id=${ch.id}`);
           }
         });
+        // 在每个分组结束后添加一个空行
+        txtContent.push('');
       }
     });
   } else {

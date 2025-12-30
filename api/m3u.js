@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     m3u += `http://0.0.0.0/\n`; // 无效地址
   } else {
     groups.forEach(g => {
-      if(Array.isArray(g.channels)) {
+      if(Array.isArray(g.channels) && g.channels.length > 0) {
         g.channels.forEach(ch => {
             // 过滤无效频道
             if (!ch.name || !ch.url) return;
@@ -28,6 +28,8 @@ export default async function handler(req, res) {
             m3u += `#EXTINF:-1 tvg-id="${tvgId}" tvg-name="${ch.name}" tvg-logo="${logo}" group-title="${g.group}",${ch.name}\n`;
             m3u += `${baseUrl}/jptv.php?id=${ch.id}\n`;
         });
+        // 在每个分组结束后追加一个换行符
+        m3u += "\n";
       }
     });
   }

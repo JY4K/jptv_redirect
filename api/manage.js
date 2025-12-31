@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
     let { newData } = req.body;
 
-    // 数据清洗：移除空分组和无效频道
+    // 数据清洗
     if (Array.isArray(newData)) {
         newData = newData.map(g => ({
         ...g,
@@ -35,8 +35,6 @@ export default async function handler(req, res) {
 
     try {
       const commonHeaders = { 'Authorization': `Bearer ${vToken}`, 'Content-Type': 'application/json' };
-
-      // 1. 获取项目信息
       const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers: commonHeaders });
       if (!projectRes.ok) throw new Error('无法获取项目信息');
       const projectData = await projectRes.json();
@@ -45,7 +43,6 @@ export default async function handler(req, res) {
         throw new Error('项目未连接 Git 仓库，无法触发自动部署');
       }
 
-      // 2. 更新环境变量 CHANNELS_DATA
       const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers: commonHeaders });
       const listData = await listRes.json();
       const targetEnvIds = listData.envs ? listData.envs.filter(e => e.key === 'CHANNELS_DATA').map(e => e.id) : [];
@@ -91,8 +88,13 @@ export default async function handler(req, res) {
     }
   }
 
+  // --- UI: 页面渲染 ---
   let channels = [];
-  try { channels = getChannels(); } catch (e) {}
+  try {
+    channels = getChannels();
+  } catch (e) {
+    console.error("Data load error:", e);
+  }
 
   const html = `
 <!DOCTYPE html>
@@ -113,12 +115,29 @@ export default async function handler(req, res) {
         .theme-dark .glass-panel { background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(20px); }
         .theme-dark .card { background: #1e293b; border: 1px solid #334155; }
         .card { cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; position: relative; }
-        .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; transition: transform 0.3s; pointer-events: none; }
-        
-        /* 错误状态下选中文本变红 */
-        #group-json-editor.has-error::selection { background: #ef4444 !important; color: #fff !important; }
-        #group-json-editor.has-error::-moz-selection { background: #ef4444 !important; color: #fff !important; }
-        .has-error { border-color: #ef4444 !important; ring-color: #ef4444 !important; }
+        .card.dragging { opacity: 0.4; border: 2px dashed #3b82f6; }
+        .card.drag-over { border: 2px solid #3b82f6; transform: scale(1.05); z-index: 10; }
+        .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; transition: transform 0.3s; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); pointer-events: none; }
+        .footer-disclaimer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(0,0,0,0.1); text-align: center; font-size: 0.85rem; opacity: 0.7; }
+
+        /* JSON 错误定位高亮样式 */
+        #group-json-editor::selection {
+            background: #ef4444 !important;
+            color: white !important;
+        }
+        .json-error-highlight {
+            border: 2px solid #ef4444 !important;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+            animation: shake 0.4s ease-in-out;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            50% { transform: translateX(8px); }
+            75% { transform: translateX(-4px); }
+        }
+        /* 强制隐藏底部验证栏 */
+        .swal2-validation-message { display: none !important; }
     </style>
 </head>
 <body class="theme-light min-h-screen p-4 md:p-8">
@@ -136,26 +155,42 @@ export default async function handler(req, res) {
                     </div>
                 </div>
             </div>
+            
             <div class="flex flex-wrap items-center justify-center gap-3">
                 <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-current/10 hover:bg-current/20 flex items-center justify-center transition">
                     <i class="fas fa-sun" id="themeIcon"></i>
                 </button>
-                ${isAuth ? \`
+                
+                ${isAuth ? `
                 <div class="flex items-center gap-2 bg-black/5 dark:bg-white/5 p-1 rounded-xl">
-                    <button onclick="exportData()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium"><i class="fas fa-download"></i> 导出</button>
-                    <button onclick="globalImport()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium"><i class="fas fa-upload"></i> 导入</button>
+                    <button onclick="exportData()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium">
+                        <i class="fas fa-download"></i> 导出
+                    </button>
+                    <button onclick="globalImport()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium">
+                        <i class="fas fa-upload"></i> 导入
+                    </button>
                 </div>
-                <button onclick="saveData()" id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition flex items-center gap-2"><i class="fas fa-cloud-upload-alt"></i> 保存并部署</button>
-                \` : ''}
+                <button onclick="saveData()" id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition flex items-center gap-2">
+                    <i class="fas fa-cloud-upload-alt"></i> 保存并部署
+                </button>
+                ` : `
+                <div class="flex gap-2">
+                    <a href="/ipv6.m3u" target="_blank" class="px-5 py-2 rounded-xl font-bold bg-current/10 hover:bg-current/20 transition flex items-center gap-2 text-sm"><i class="fas fa-file-code"></i> M3U</a>
+                    <a href="/ipv6.txt" target="_blank" class="px-5 py-2 rounded-xl font-bold bg-current/10 hover:bg-current/20 transition flex items-center gap-2 text-sm"><i class="fas fa-file-alt"></i> TXT</a>
+                </div>
+                `}
             </div>
         </header>
 
         <div id="app" class="space-y-8 pb-12"></div>
-        ${isAuth ? \`
+        
+        ${isAuth ? `
         <div class="py-10 text-center">
-             <button onclick="addGroup()" class="px-8 py-4 rounded-2xl border-2 border-dashed border-current/20 hover:border-blue-500 text-current/50 hover:text-blue-500 transition font-bold flex items-center gap-2 mx-auto text-lg"><i class="fas fa-plus-circle"></i> 添加新分组</button>
+             <button onclick="addGroup()" class="px-8 py-4 rounded-2xl border-2 border-dashed border-current/20 hover:border-blue-500 text-current/50 hover:text-blue-500 transition font-bold flex items-center gap-2 mx-auto text-lg">
+                <i class="fas fa-plus-circle"></i> 添加新分组
+            </button>
         </div>
-        \` : ''}
+        ` : ''}
     </div>
 
     <script>
@@ -164,6 +199,37 @@ export default async function handler(req, res) {
         const currentToken = "${token}";
         const currentVer = "${currentVersion}";
         const repoApi = "${config.repoApiUrl}";
+        
+        let dragSrc = null;
+
+        async function checkVersion() {
+            try {
+                const res = await fetch(repoApi);
+                if(res.ok) {
+                    const data = await res.json();
+                    const latest = data.tag_name ? data.tag_name.replace('v', '') : currentVer;
+                    const el = document.getElementById('version-display');
+                    if (latest !== currentVer) {
+                        el.innerHTML = \`v\${currentVer} <span class="text-blue-500 ml-1" title="最新版本: v\${latest}">● update available</span>\`;
+                    } else {
+                        el.innerHTML = \`v\${currentVer} <span class="text-green-500 ml-1">● latest</span>\`;
+                    }
+                }
+            } catch(e) { console.log('Version check failed'); }
+        }
+        checkVersion();
+
+        let currentTheme = localStorage.getItem('jptv_theme') || 'light';
+        function applyTheme() {
+            document.body.className = 'theme-' + currentTheme + ' min-h-screen p-4 md:p-8';
+            document.getElementById('themeIcon').className = currentTheme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
+        }
+        function toggleTheme() {
+            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+            localStorage.setItem('jptv_theme', currentTheme);
+            applyTheme();
+        }
+        applyTheme();
 
         function render() {
             const app = document.getElementById('app');
@@ -171,33 +237,59 @@ export default async function handler(req, res) {
                 app.innerHTML = '<div class="text-center py-20 opacity-50 text-xl">暂无数据</div>';
                 return;
             }
+
             app.innerHTML = raw.map((g, gi) => \`
-                <div class="glass-panel rounded-2xl p-6">
+                <div class="glass-panel rounded-2xl p-6 animate-fade-in">
                     <div class="flex items-center justify-between mb-6 border-b border-current/10 pb-4">
                         <div class="flex-1">
                             \${isAuth 
-                                ? \`<input class="text-xl font-bold bg-transparent outline-none border-b-2 border-transparent focus:border-blue-500 transition w-full" value="\${g.group}" onchange="updateGroup(\${gi}, this.value)">\` 
+                                ? \`<input class="text-xl font-bold bg-transparent outline-none border-b-2 border-transparent focus:border-blue-500 transition w-full placeholder-current/30" 
+                                    value="\${g.group}" 
+                                    onchange="updateGroup(\${gi}, this.value)" 
+                                    placeholder="分组名称">\` 
                                 : \`<h2 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-layer-group text-blue-500"></i> \${g.group}</h2>\`
                             }
                         </div>
                         \${isAuth ? \`
                         <div class="flex items-center gap-1">
-                            <button onclick="editGroupChannels(\${gi})" class="p-2 text-green-400 hover:bg-green-500/10 rounded" title="编辑分组数据"><i class="fas fa-edit"></i></button>
-                            <button onclick="moveGroup(\${gi}, -1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded \${gi === 0 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-up"></i></button>
-                            <button onclick="moveGroup(\${gi}, 1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded \${gi === raw.length - 1 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-down"></i></button>
-                            <button onclick="deleteGroup(\${gi})" class="text-red-400 hover:bg-red-500/10 p-2 rounded ml-1"><i class="fas fa-trash-alt"></i></button>
+                            <button onclick="editGroupChannels(\${gi})" class="p-2 text-green-400 hover:bg-green-500/10 rounded transition mr-1" title="编辑分组数据"><i class="fas fa-edit"></i></button>
+                            <button onclick="moveGroup(\${gi}, -1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === 0 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-up"></i></button>
+                            <button onclick="moveGroup(\${gi}, 1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === raw.length - 1 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-down"></i></button>
+                            <button onclick="deleteGroup(\${gi})" class="text-red-400 hover:bg-red-500/10 p-2 rounded transition ml-1"><i class="fas fa-trash-alt"></i></button>
                         </div>
                         \` : ''}
                     </div>
+
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-5">
                         \${g.channels.map((ch, ci) => \`
-                            <div class="card rounded-xl group" onclick="\${isAuth ? \`editChannel(\${gi},\${ci})\` : \`copyLink('\${ch.id}')\`}">
-                                <img src="\${getLogoUrl(ch.logo)}" class="channel-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+                            <div class="card rounded-xl group" 
+                                 \${isAuth ? \`draggable="true" 
+                                    ondragstart="dragStart(event, \${gi}, \${ci})" 
+                                    ondragover="dragOver(event)" 
+                                    ondragenter="dragEnter(event)" 
+                                    ondragleave="dragLeave(event)" 
+                                    ondrop="dragDrop(event, \${gi}, \${ci})" 
+                                    ondragend="dragEnd(event)"\` : ''}
+                                 onclick="\${isAuth ? \`editChannel(\${gi},\${ci})\` : \`copyLink('\${ch.id}')\`}">
+                                
+                                <img src="\${getLogoUrl(ch.logo)}" 
+                                     class="channel-logo" 
+                                     onerror="this.style.display='none';this.nextElementSibling.style.display='block'" 
+                                     loading="lazy">
                                 <i class="fas fa-tv text-4xl mb-3 opacity-20 hidden text-gray-500"></i>
-                                <div class="text-center w-full px-2 z-10 pointer-events-none"><h3 class="font-bold text-sm truncate">\${ch.name}</h3></div>
+                                
+                                <div class="text-center w-full px-2 z-10 pointer-events-none">
+                                    <h3 class="font-bold text-sm truncate" title="\${ch.name}">\${ch.name}</h3>
+                                </div>
                             </div>
                         \`).join('')}
-                        \${isAuth ? \`<div onclick="addChannel(\${gi})" class="card rounded-xl border-dashed bg-transparent hover:bg-current/5 text-blue-500 opacity-60"><i class="fas fa-plus text-3xl mb-2"></i><span class="font-bold text-sm">添加频道</span></div>\` : ''}
+                        
+                        \${isAuth ? \`
+                        <div onclick="addChannel(\${gi})" class="card rounded-xl border-dashed bg-transparent hover:bg-current/5 opacity-60 hover:opacity-100 text-blue-500">
+                            <i class="fas fa-plus text-3xl mb-2"></i>
+                            <span class="font-bold text-sm">添加频道</span>
+                        </div>
+                        \` : ''}
                     </div>
                 </div>
             \`).join('');
@@ -206,65 +298,51 @@ export default async function handler(req, res) {
         async function editGroupChannels(gi) {
             const groupData = raw[gi];
             const isDark = currentTheme === 'dark';
-            
             const { value: jsonText } = await Swal.fire({
                 title: \`编辑分组数据: \${groupData.group}\`,
                 background: isDark ? '#1e293b' : '#fff',
                 color: isDark ? '#fff' : '#333',
-                width: '85%',
-                padding: '2rem',
+                width: '80%',
                 html: \`
                     <div class="text-left">
-                        <p class="text-xs opacity-60 mb-3">若格式有误，点击“保存”将自动定位并标红错误位置。</p>
-                        <textarea id="group-json-editor" 
-                            class="w-full h-[600px] p-5 text-sm font-mono border-2 rounded-xl bg-transparent outline-none focus:ring-4 ring-blue-500/20 transition-all leading-relaxed" 
-                            spellcheck="false"
-                            oninput="this.classList.remove('has-error')">\${JSON.stringify(groupData, null, 2)}</textarea>
-                    </div>\`,
+                        <p class="text-xs opacity-60 mb-2">保存时若格式错误，系统将自动定位并红色高亮错误位置。</p>
+                        <textarea id="group-json-editor" class="w-full h-[550px] p-4 text-xs font-mono border rounded bg-transparent outline-none focus:ring-1 ring-blue-500/50 transition-all" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
+                    </div>
+                \`,
                 showCancelButton: true,
                 confirmButtonText: '保存修改',
                 cancelButtonText: '取消',
-                focusConfirm: false,
                 preConfirm: () => {
                     const editor = document.getElementById('group-json-editor');
                     const text = editor.value;
                     
+                    // 清除旧错误状态
+                    editor.classList.remove('json-error-highlight');
+                    void editor.offsetWidth; // 触发重绘以重新执行动画
+
                     try {
                         const parsed = JSON.parse(text);
                         if (!parsed.group || !Array.isArray(parsed.channels)) throw new Error('缺少必要字段');
                         return parsed;
                     } catch (e) {
-                        editor.classList.add('has-error');
-                        
-                        // 解析错误位置
-                        let pos = 0;
+                        // 1. 提取错误位置
                         const posMatch = e.message.match(/at position (\\d+)/);
                         if (posMatch) {
-                            pos = parseInt(posMatch[1]);
-                        } else {
-                            // 针对 Firefox 等其他浏览器的行列号解析
-                            const lineMatch = e.message.match(/line (\\d+) column (\\d+)/);
-                            if (lineMatch) {
-                                const targetLine = parseInt(lineMatch[1]) - 1;
-                                const targetCol = parseInt(lineMatch[2]) - 1;
-                                const lines = text.split('\\n');
-                                for(let i=0; i<targetLine; i++) pos += lines[i].length + 1;
-                                pos += targetCol;
-                            }
+                            const pos = parseInt(posMatch[1]);
+                            editor.focus();
+                            // 2. 红色高亮错误位置（利用 ::selection）
+                            // 选中错误发生点前后各几个字符，使其非常显眼
+                            editor.setSelectionRange(pos, pos + 1);
+                            
+                            // 3. 自动滚动到错误位置
+                            const fullText = editor.value;
+                            const lineNum = fullText.substr(0, pos).split("\\n").length;
+                            const lineHeight = 18; 
+                            editor.scrollTop = (lineNum - 10) * lineHeight;
                         }
-
-                        // 执行定位：选中错误字符 + 滚动到中心
-                        editor.focus();
-                        editor.setSelectionRange(pos, pos + 2); // 选中错误点开始的2个字符
                         
-                        const linesBefore = text.substr(0, pos).split('\\n');
-                        const lineNum = linesBefore.length;
-                        const lineHeight = parseInt(window.getComputedStyle(editor).lineHeight);
-                        const scrollPos = (lineNum * lineHeight) - (editor.clientHeight / 2);
-                        
-                        editor.scrollTo({ top: scrollPos, behavior: 'smooth' });
-                        
-                        // 不使用默认 Swal 提示，保持界面整洁
+                        // 4. 视觉反馈：红色边框和震动，不显示底部提示文字
+                        editor.classList.add('json-error-highlight');
                         return false; 
                     }
                 }
@@ -273,56 +351,103 @@ export default async function handler(req, res) {
             if (jsonText) {
                 raw[gi] = jsonText;
                 render();
-                Swal.fire({ icon: 'success', title: '修改已暂存', timer: 1500, showConfirmButton: false });
+                Swal.fire({ icon: 'success', title: '修改已暂存', timer: 1000, showConfirmButton: false });
             }
         }
 
-        async function saveData() {
-            const btn = document.getElementById('saveBtn');
-            const original = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 部署中...';
-            btn.disabled = true;
+        function exportData() {
+            const dataStr = JSON.stringify(raw, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = \`jptv_backup_\${new Date().toISOString().slice(0,10)}.json\`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            Swal.fire({ icon: 'success', title: '数据导出成功', timer: 1500 });
+        }
+
+        async function globalImport() {
+            const isDark = currentTheme === 'dark';
+            const { value: text } = await Swal.fire({
+                title: '批量导入数据',
+                background: isDark ? '#1e293b' : '#fff',
+                color: isDark ? '#fff' : '#333',
+                html: \`
+                    <div class="text-left space-y-4">
+                        <textarea id="import-text" class="w-full h-48 p-2 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500" placeholder="粘贴内容..."></textarea>
+                        <input type="file" id="import-file" accept=".json,.txt,.m3u" class="text-xs">
+                    </div>
+                \`,
+                showCancelButton: true,
+                confirmButtonText: '确认导入',
+                didOpen: () => {
+                    const fileInput = document.getElementById('import-file');
+                    fileInput.onchange = (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => document.getElementById('import-text').value = ev.target.result;
+                        reader.readAsText(file);
+                    };
+                },
+                preConfirm: () => document.getElementById('import-text').value
+            });
+
+            if (!text) return;
             try {
-                const res = await fetch(\`/api/manage?token=\${currentToken}\`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ newData: raw })
-                });
-                if (res.ok) Swal.fire({ icon: 'success', title: '部署已触发', text: '请等待 1-2 分钟后刷新查看效果。' });
-                else throw new Error('保存失败');
-            } catch (e) {
-                Swal.fire({icon: 'error', title: '错误', text: e.message});
-            } finally {
-                btn.innerHTML = original; btn.disabled = false;
-            }
+                if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
+                    const jsonData = JSON.parse(text);
+                    const list = Array.isArray(jsonData) ? jsonData : [jsonData];
+                    raw = [...raw, ...list];
+                    render();
+                }
+            } catch (e) { Swal.fire({ icon: 'error', title: '解析失败' }); }
         }
 
-        function toggleTheme() {
-            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-            localStorage.setItem('jptv_theme', currentTheme);
-            applyTheme();
+        function dragStart(e, gi, ci) { dragSrc = { gi, ci }; e.target.classList.add('dragging'); }
+        function dragOver(e) { if (e.preventDefault) e.preventDefault(); return false; }
+        function dragEnter(e) { e.target.closest('.card')?.classList.add('drag-over'); }
+        function dragLeave(e) { e.target.closest('.card')?.classList.remove('drag-over'); }
+        function dragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
+        function dragDrop(e, targetGi, targetCi) {
+            if (e.stopPropagation) e.stopPropagation();
+            const [movedItem] = raw[dragSrc.gi].channels.splice(dragSrc.ci, 1);
+            raw[targetGi].channels.splice(targetCi, 0, movedItem);
+            render();
+            return false;
         }
-        function applyTheme() {
-            document.body.className = 'theme-' + currentTheme + ' min-h-screen p-4 md:p-8';
-            document.getElementById('themeIcon').className = currentTheme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
-        }
-        let currentTheme = localStorage.getItem('jptv_theme') || 'light';
-        applyTheme();
 
         function getLogoUrl(logo) {
             if (!logo) return '';
-            return logo.startsWith('http') ? logo : 'https://gcore.jsdelivr.net/gh/fanmingming/live/tv/' + logo + '.png';
+            if (logo.startsWith('http')) return logo;
+            return 'https://gcore.jsdelivr.net/gh/fanmingming/live/tv/' + logo + '.png';
         }
+
         function updateGroup(i, v) { raw[i].group = v; }
+        function deleteGroup(i) {
+            Swal.fire({ title: '确认删除分组?', icon: 'warning', showCancelButton: true, confirmButtonText: '删除' }).then(r => {
+                if(r.isConfirmed) { raw.splice(i, 1); render(); }
+            });
+        }
         function moveGroup(i, dir) {
             const target = i + dir;
-            if (target >= 0 && target < raw.length) { [raw[i], raw[target]] = [raw[target], raw[i]]; render(); }
+            if (target >= 0 && target < raw.length) {
+                [raw[i], raw[target]] = [raw[target], raw[i]];
+                render();
+            }
         }
-        function deleteGroup(i) {
-            Swal.fire({ title: '确认删除?', icon: 'warning', showCancelButton: true }).then(r => { if(r.isConfirmed) { raw.splice(i, 1); render(); } });
-        }
+        
         function addGroup() { raw.push({group:'新分组',channels:[]}); render(); }
-        function addChannel(gi) { raw[gi].channels.push({name:'', id: '', logo: '', url:[]}); render(); editChannel(gi, raw[gi].channels.length - 1, true); }
+        async function addChannel(gi) { 
+            const newChannel = {name:'', id: '', logo: '', url:[]};
+            raw[gi].channels.push(newChannel); 
+            render(); 
+            await editChannel(gi, raw[gi].channels.length - 1, true);
+        }
+
         async function editChannel(gi, ci, isNew = false) {
             const ch = raw[gi].channels[ci];
             const isDark = currentTheme === 'dark';
@@ -330,14 +455,15 @@ export default async function handler(req, res) {
                 title: isNew ? '添加频道' : '编辑频道',
                 background: isDark ? '#1e293b' : '#fff',
                 color: isDark ? '#fff' : '#333',
+                width: '600px',
                 html: \`
                     <div class="space-y-4 text-left mt-2">
-                        <input id="s-name" class="w-full p-2.5 border rounded bg-transparent" placeholder="名称" value="\${ch.name}">
+                        <input id="s-name" placeholder="名称" class="w-full p-2.5 border rounded bg-transparent" value="\${ch.name}">
                         <div class="flex gap-4">
-                            <input id="s-id" class="flex-1 p-2.5 border rounded bg-transparent" placeholder="ID (EPG)" value="\${ch.id}">
-                            <input id="s-logo" class="flex-1 p-2.5 border rounded bg-transparent" placeholder="Logo" value="\${ch.logo||''}">
+                            <input id="s-id" placeholder="ID" class="flex-1 p-2.5 border rounded bg-transparent" value="\${ch.id}">
+                            <input id="s-logo" placeholder="Logo" class="flex-1 p-2.5 border rounded bg-transparent" value="\${ch.logo||''}">
                         </div>
-                        <textarea id="s-url" class="w-full p-3 border rounded bg-transparent font-mono text-xs h-32" placeholder="直播源 (每行一个)">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
+                        <textarea id="s-url" class="w-full p-3 border rounded bg-transparent font-mono text-xs h-32" placeholder="http://...">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
                     </div>\`,
                 showDenyButton: !isNew,
                 denyButtonText: '删除', confirmButtonText: '保存', showCancelButton: true,
@@ -348,19 +474,43 @@ export default async function handler(req, res) {
                     return { name, id: document.getElementById('s-id').value.trim(), logo: document.getElementById('s-logo').value.trim(), url: urls };
                 }
             });
+
             if (value) { raw[gi].channels[ci] = value; render(); }
             else if (isDenied) { raw[gi].channels.splice(ci, 1); render(); }
             else if (isNew && isDismissed) { raw[gi].channels.splice(ci, 1); render(); }
         }
-        function exportData() {
-            const blob = new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = 'jptv_backup.json'; a.click();
+
+        async function saveData() {
+            const btn = document.getElementById('saveBtn');
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 部署中...';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(\`/api/manage?token=\${currentToken}\`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ newData: raw })
+                });
+                if (res.ok) Swal.fire({ icon: 'success', title: '部署已触发', timer: 5000 });
+                else throw new Error('保存失败');
+            } catch (e) {
+                Swal.fire({icon: 'error', title: '错误', text: e.message});
+            } finally {
+                btn.innerHTML = original; btn.disabled = false;
+            }
         }
+
+        function copyLink(id) {
+            navigator.clipboard.writeText(window.location.origin + '/jptv.php?id=' + id);
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: '链接已复制', showConfirmButton: false, timer: 1500 });
+        }
+
         render();
     </script>
 </body>
-</html>`;
+</html>
+  `;
   res.setHeader('Content-Type', 'text/html');
   res.send(html);
 }

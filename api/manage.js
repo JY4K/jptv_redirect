@@ -103,7 +103,6 @@ export default async function handler(req, res) {
     console.error("Data load error:", e);
   }
 
-  // UI HTML 代码保持原样，仅做字符串嵌入
   const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -247,6 +246,7 @@ export default async function handler(req, res) {
                         </div>
                         \${isAuth ? \`
                         <div class="flex items-center gap-1">
+                            <button onclick="editGroupChannels(\${gi})" class="p-2 text-green-400 hover:bg-green-500/10 rounded transition mr-1" title="编辑分组数据"><i class="fas fa-edit"></i></button>
                             <button onclick="moveGroup(\${gi}, -1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === 0 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-up"></i></button>
                             <button onclick="moveGroup(\${gi}, 1)" class="p-2 text-blue-400 hover:bg-blue-500/10 rounded transition \${gi === raw.length - 1 ? 'opacity-20 pointer-events-none' : ''}"><i class="fas fa-arrow-down"></i></button>
                             <button onclick="deleteGroup(\${gi})" class="text-red-400 hover:bg-red-500/10 p-2 rounded transition ml-1"><i class="fas fa-trash-alt"></i></button>
@@ -287,6 +287,46 @@ export default async function handler(req, res) {
                     </div>
                 </div>
             \`).join('');
+        }
+
+        // 新增功能：编辑分组频道详情
+        async function editGroupChannels(gi) {
+            const groupData = raw[gi];
+            const isDark = currentTheme === 'dark';
+            const { value: jsonText } = await Swal.fire({
+                title: \`编辑分组数据: \${groupData.group}\`,
+                background: isDark ? '#1e293b' : '#fff',
+                color: isDark ? '#fff' : '#333',
+                width: '80%',
+                html: \`
+                    <div class="text-left">
+                        <p class="text-xs opacity-60 mb-2 font-sans">您可以直接修改下方的 JSON 进行增删改查。格式必须符合 JPTV 规范。</p>
+                        <textarea id="group-json-editor" class="w-full h-[500px] p-4 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
+                    </div>
+                \`,
+                showCancelButton: true,
+                confirmButtonText: '保存修改',
+                cancelButtonText: '取消',
+                preConfirm: () => {
+                    const text = document.getElementById('group-json-editor').value;
+                    try {
+                        const parsed = JSON.parse(text);
+                        if (!parsed.group || !Array.isArray(parsed.channels)) {
+                            throw new Error('缺少必要字段: group 或 channels');
+                        }
+                        return parsed;
+                    } catch (e) {
+                        Swal.showValidationMessage(\`无效的 JSON 格式: \${e.message}\`);
+                        return false;
+                    }
+                }
+            });
+
+            if (jsonText) {
+                raw[gi] = jsonText;
+                render();
+                Swal.fire({ icon: 'success', title: '临时保存成功', text: '请不要忘记点击顶部的“保存并部署”以同步到服务器。', timer: 2000 });
+            }
         }
 
         function exportData() {

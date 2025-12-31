@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   const isAuth = token === config.adminToken;
   const currentVersion = config.currentVersion;
 
-  // --- API: 保存数据并触发部署 ---
+  // --- API:  保存数据并触发部署 ---
   if (req.method === 'POST') {
     if (!isAuth) return res.status(401).json({ error: '无权操作' });
 

@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   const isAuth = token === config.adminToken;
   const currentVersion = config.currentVersion;
 
-  // --- API:  保存数据并触发部署 ---
+  // --- API: 保存数据并触发部署 ---
   if (req.method === 'POST') {
     if (!isAuth) return res.status(401).json({ error: '无权操作' });
 
@@ -126,6 +126,9 @@ export default async function handler(req, res) {
         .card.drag-over { border: 2px solid #3b82f6; transform: scale(1.05); z-index: 10; }
         .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; transition: transform 0.3s; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); pointer-events: none; }
         .footer-disclaimer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(0,0,0,0.1); text-align: center; font-size: 0.85rem; opacity: 0.7; }
+        
+        /* 错误提示样式 */
+        .json-error-highlight { outline: 2px solid #ef4444 !important; background: rgba(239, 68, 68, 0.05) !important; }
     </style>
 </head>
 <body class="theme-light min-h-screen p-4 md:p-8">
@@ -289,7 +292,7 @@ export default async function handler(req, res) {
             \`).join('');
         }
 
-        // 新增功能：编辑分组频道详情
+        // 修改后的编辑分组频道详情功能：支持错误定位
         async function editGroupChannels(gi) {
             const groupData = raw[gi];
             const isDark = currentTheme === 'dark';
@@ -300,15 +303,18 @@ export default async function handler(req, res) {
                 width: '80%',
                 html: \`
                     <div class="text-left">
-                        <p class="text-xs opacity-60 mb-2 font-sans">您可以直接修改下方的 JSON 进行增删改查。格式必须符合 JPTV 规范。</p>
-                        <textarea id="group-json-editor" class="w-full h-[500px] p-4 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
+                        <p class="text-xs opacity-60 mb-2 font-sans">您可以直接修改下方的 JSON。如果格式错误，保存时将自动定位并标红错误位置。</p>
+                        <textarea id="group-json-editor" class="w-full h-[500px] p-4 text-xs font-mono border rounded bg-transparent outline-none focus:ring-2 ring-blue-500 transition-all" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
                     </div>
                 \`,
                 showCancelButton: true,
                 confirmButtonText: '保存修改',
                 cancelButtonText: '取消',
                 preConfirm: () => {
-                    const text = document.getElementById('group-json-editor').value;
+                    const editor = document.getElementById('group-json-editor');
+                    const text = editor.value;
+                    editor.classList.remove('json-error-highlight'); // 重置样式
+                    
                     try {
                         const parsed = JSON.parse(text);
                         if (!parsed.group || !Array.isArray(parsed.channels)) {
@@ -316,7 +322,17 @@ export default async function handler(req, res) {
                         }
                         return parsed;
                     } catch (e) {
-                        Swal.showValidationMessage(\`无效的 JSON 格式: \${e.message}\`);
+                        // 尝试从错误信息中提取位置 (例如: "at position 123")
+                        const posMatch = e.message.match(/at position (\\d+)/);
+                        if (posMatch) {
+                            const pos = parseInt(posMatch[1]);
+                            // 选中错误代码片段
+                            editor.focus();
+                            editor.setSelectionRange(pos, pos + 1);
+                            // 增加视觉震动提示
+                            editor.classList.add('json-error-highlight');
+                        }
+                        Swal.showValidationMessage(\`JSON 格式错误: \${e.message}\`);
                         return false;
                     }
                 }
@@ -325,7 +341,7 @@ export default async function handler(req, res) {
             if (jsonText) {
                 raw[gi] = jsonText;
                 render();
-                Swal.fire({ icon: 'success', title: '临时保存成功', text: '请不要忘记点击顶部的“保存并部署”以同步到服务器。', timer: 2000 });
+                Swal.fire({ icon: 'success', title: '临时保存成功', text: '请记得点击顶部的“保存并部署”按钮。', timer: 2000 });
             }
         }
 

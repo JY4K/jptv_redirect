@@ -119,17 +119,17 @@ export default async function handler(req, res) {
         .card.dragging { opacity: 0.4; border: 2px dashed #3b82f6; }
         .card.drag-over { border: 2px solid #3b82f6; transform: scale(1.05); z-index: 10; }
         .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; transition: transform 0.3s; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); pointer-events: none; }
-        .footer-disclaimer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(0,0,0,0.1); text-align: center; font-size: 0.85rem; opacity: 0.7; }
-
-        /* JSON 错误定位高亮样式 */
-        #group-json-editor::selection {
-            background: #ef4444 !important;
-            color: white !important;
-        }
-        .json-error-highlight {
+        
+        /* JSON 错误高亮核心样式 */
+        .json-editor-error {
             border: 2px solid #ef4444 !important;
-            box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+            background-color: rgba(239, 68, 68, 0.05) !important;
             animation: shake 0.4s ease-in-out;
+        }
+        /* 强制让选中的错误位置显示为红色 */
+        #group-json-editor.json-editor-error::selection {
+            background: #ef4444 !important;
+            color: #ffffff !important;
         }
         @keyframes shake {
             0%, 100% { transform: translateX(0); }
@@ -137,7 +137,6 @@ export default async function handler(req, res) {
             50% { transform: translateX(8px); }
             75% { transform: translateX(-4px); }
         }
-        /* 强制隐藏底部验证栏 */
         .swal2-validation-message { display: none !important; }
     </style>
 </head>
@@ -145,7 +144,6 @@ export default async function handler(req, res) {
     <div class="max-w-[1600px] mx-auto">
         <header class="flex flex-col lg:flex-row justify-between items-center mb-8 glass-panel p-6 rounded-2xl gap-4 shadow-sm">
             <div class="flex items-center gap-4">
-                <!-- 修改后的控制台图标 -->
                 <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 overflow-hidden border border-gray-100">
                     <img src="/jptv.png" class="w-10 h-10 object-contain" alt="JPTV">
                 </div>
@@ -157,12 +155,10 @@ export default async function handler(req, res) {
                     </div>
                 </div>
             </div>
-            
             <div class="flex flex-wrap items-center justify-center gap-3">
                 <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-current/10 hover:bg-current/20 flex items-center justify-center transition">
                     <i class="fas fa-sun" id="themeIcon"></i>
                 </button>
-                
                 ${isAuth ? `
                 <div class="flex items-center gap-2 bg-black/5 dark:bg-white/5 p-1 rounded-xl">
                     <button onclick="exportData()" class="px-4 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-sm font-medium">
@@ -297,54 +293,77 @@ export default async function handler(req, res) {
             \`).join('');
         }
 
+        // --- 核心优化逻辑：编辑分组 JSON 数据 ---
         async function editGroupChannels(gi) {
             const groupData = raw[gi];
             const isDark = currentTheme === 'dark';
+            
             const { value: jsonText } = await Swal.fire({
                 title: \`编辑分组数据: \${groupData.group}\`,
                 background: isDark ? '#1e293b' : '#fff',
                 color: isDark ? '#fff' : '#333',
                 width: '80%',
                 html: \`
-                    <div class="text-left">
-                        <p class="text-xs opacity-60 mb-2">保存时若格式错误，系统将自动定位并红色高亮错误位置。</p>
-                        <textarea id="group-json-editor" class="w-full h-[500px] p-4 text-xs font-mono border rounded bg-transparent outline-none focus:ring-1 ring-blue-500/50 transition-all" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
+                    <div class="text-left relative">
+                        <p class="text-xs opacity-60 mb-2">提示：若保存失败，系统将自动定位错误并标红。修改内容后警告会自动消失。</p>
+                        <textarea id="group-json-editor" 
+                            class="w-full h-[500px] p-4 text-sm font-mono border rounded bg-transparent outline-none focus:ring-1 ring-blue-500/50 transition-all leading-relaxed" 
+                            spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
                     </div>
                 \`,
                 showCancelButton: true,
-                confirmButtonText: '保存修改',
+                confirmButtonText: '确认保存',
                 cancelButtonText: '取消',
+                didOpen: () => {
+                    const editor = document.getElementById('group-json-editor');
+                    // 当用户开始修改时，移除红色警告
+                    editor.addEventListener('input', () => {
+                        editor.classList.remove('json-editor-error');
+                    });
+                },
                 preConfirm: () => {
                     const editor = document.getElementById('group-json-editor');
                     const text = editor.value;
-                    
-                    // 清除旧错误状态
-                    editor.classList.remove('json-error-highlight');
-                    void editor.offsetWidth; // 触发重绘以重新执行动画
 
                     try {
                         const parsed = JSON.parse(text);
-                        if (!parsed.group || !Array.isArray(parsed.channels)) throw new Error('缺少必要字段');
+                        if (!parsed.group || !Array.isArray(parsed.channels)) {
+                            throw new Error('结构错误：缺少 group 或 channels');
+                        }
                         return parsed;
                     } catch (e) {
-                        // 1. 提取错误位置
+                        // 1. 开启警告视觉效果
+                        editor.classList.add('json-editor-error');
+                        
+                        // 2. 解析错误位置 (适配 Chrome position 和 Firefox line/col 格式)
+                        let pos = 0;
                         const posMatch = e.message.match(/at position (\\d+)/);
                         if (posMatch) {
-                            const pos = parseInt(posMatch[1]);
-                            editor.focus();
-                            // 2. 红色高亮错误位置（利用 ::selection）
-                            // 选中错误发生点前后各几个字符，使其非常显眼
-                            editor.setSelectionRange(pos, pos + 1);
-                            
-                            // 3. 自动滚动到错误位置
-                            const fullText = editor.value;
-                            const lineNum = fullText.substr(0, pos).split("\\n").length;
-                            const lineHeight = 18; 
-                            editor.scrollTop = (lineNum - 10) * lineHeight;
+                            pos = parseInt(posMatch[1]);
+                        } else {
+                            // 尝试备选解析 (line/column)
+                            const lineMatch = e.message.match(/line (\\d+) column (\\d+)/);
+                            if (lineMatch) {
+                                const lines = text.split('\\n');
+                                const lineIdx = parseInt(lineMatch[1]) - 1;
+                                pos = lines.slice(0, lineIdx).join('\\n').length + parseInt(lineMatch[2]);
+                            }
                         }
+
+                        // 3. 计算行号并自动居中滚动
+                        const linesBefore = text.substring(0, pos).split('\\n');
+                        const errorLineIndex = linesBefore.length - 1;
+                        const lineHeight = 20; // 对应 text-sm 的行高
+                        const containerHeight = editor.clientHeight;
                         
-                        // 4. 视觉反馈：红色边框和震动，不显示底部提示文字
-                        editor.classList.add('json-error-highlight');
+                        // 计算滚动条位置，使错误行居中
+                        editor.scrollTop = (errorLineIndex * lineHeight) - (containerHeight / 2) + (lineHeight / 2);
+
+                        // 4. 高亮错误字符 (利用 ::selection 标红)
+                        editor.focus();
+                        editor.setSelectionRange(pos, pos + 1);
+
+                        // 返回 false 阻止 Swal 关闭
                         return false; 
                     }
                 }
@@ -353,7 +372,7 @@ export default async function handler(req, res) {
             if (jsonText) {
                 raw[gi] = jsonText;
                 render();
-                Swal.fire({ icon: 'success', title: '修改已暂存', timer: 1000, showConfirmButton: false });
+                Swal.fire({ icon: 'success', title: '修改已暂存', timer: 1500, showConfirmButton: false });
             }
         }
 

@@ -120,28 +120,20 @@ export default async function handler(req, res) {
         .card.dragging { opacity: 0.4; border: 2px dashed #3b82f6; }
         .card.drag-over { border: 2px solid #3b82f6; transform: scale(1.05); z-index: 10; }
         .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; transition: transform 0.3s; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); pointer-events: none; }
-        .footer-disclaimer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(0,0,0,0.1); text-align: center; font-size: 0.85rem; opacity: 0.7; }
-
-        /* 编辑器优化 */
-        .editor-container { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid rgba(0,0,0,0.1); background: #1e293b; }
+        
+        /* JSON 错误定位高亮样式 */
         #group-json-editor {
             font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
             background: #1e293b;
             color: #e2e8f0;
-            line-height: 1.6;
-            scrollbar-width: thin;
-            scrollbar-color: #475569 transparent;
         }
-        #group-json-editor::-webkit-scrollbar { width: 8px; }
-        #group-json-editor::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
-        
         #group-json-editor::selection {
-            background: #3b82f6 !important;
+            background: #ef4444 !important;
             color: white !important;
         }
         .json-error-highlight {
             border: 2px solid #ef4444 !important;
-            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
             animation: shake 0.4s ease-in-out;
         }
         @keyframes shake {
@@ -157,8 +149,8 @@ export default async function handler(req, res) {
     <div class="max-w-[1600px] mx-auto">
         <header class="flex flex-col lg:flex-row justify-between items-center mb-8 glass-panel p-6 rounded-2xl gap-4 shadow-sm">
             <div class="flex items-center gap-4">
-                <!-- 修改后的控制台图标 -->
-                <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 overflow-hidden border border-gray-100">
+                <!-- 控制台前的图标修改 -->
+                <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg border border-gray-100 overflow-hidden">
                     <img src="/jptv.png" class="w-10 h-10 object-contain" alt="JPTV">
                 </div>
                 <div>
@@ -312,41 +304,35 @@ export default async function handler(req, res) {
         async function editGroupChannels(gi) {
             const groupData = raw[gi];
             const isDark = currentTheme === 'dark';
+            // 优化：增加了 width 到 90% (max-width 1100px)
             const { value: jsonText } = await Swal.fire({
-                title: \`编辑分组: \${groupData.group}\`,
+                title: \`编辑分组数据: \${groupData.group}\`,
                 background: isDark ? '#1e293b' : '#fff',
                 color: isDark ? '#fff' : '#333',
-                width: '900px',
-                padding: '1.5rem',
+                width: '90%',
+                customClass: {
+                    container: 'max-w-[1100px] mx-auto'
+                },
                 html: \`
                     <div class="text-left">
-                        <div class="flex items-center gap-2 mb-3 text-xs font-medium opacity-60 bg-blue-500/10 p-2 rounded text-blue-400">
-                            <i class="fas fa-info-circle"></i>
-                            <span>修改 JSON 内容可批量管理频道。保存时若格式错误将自动定位。</span>
-                        </div>
-                        <div class="editor-container shadow-2xl">
-                            <textarea id="group-json-editor" class="w-full h-[600px] p-5 text-[13px] outline-none transition-all" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
-                        </div>
+                        <p class="text-xs opacity-60 mb-2">保存时若格式错误，系统将自动定位并红色高亮错误位置。</p>
+                        <textarea id="group-json-editor" class="w-full h-[650px] p-4 text-sm font-mono border rounded-xl outline-none focus:ring-2 ring-blue-500/50 transition-all shadow-inner" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
                     </div>
                 \`,
                 showCancelButton: true,
-                confirmButtonText: '<i class="fas fa-check mr-1"></i> 保存修改',
+                confirmButtonText: '保存修改',
                 cancelButtonText: '取消',
-                buttonsStyling: true,
-                customClass: {
-                    confirmButton: 'bg-blue-600 hover:bg-blue-700 px-6 py-2.5 rounded-xl font-bold',
-                    cancelButton: 'bg-gray-500 hover:bg-gray-600 px-6 py-2.5 rounded-xl font-bold ml-3'
-                },
                 preConfirm: () => {
                     const editor = document.getElementById('group-json-editor');
                     const text = editor.value;
                     
+                    // 清除旧错误状态
                     editor.classList.remove('json-error-highlight');
                     void editor.offsetWidth; 
 
                     try {
                         const parsed = JSON.parse(text);
-                        if (!parsed.group || !Array.isArray(parsed.channels)) throw new Error('缺少必要字段 (group 或 channels)');
+                        if (!parsed.group || !Array.isArray(parsed.channels)) throw new Error('缺少必要字段');
                         return parsed;
                     } catch (e) {
                         const posMatch = e.message.match(/at position (\\d+)/);
@@ -354,10 +340,13 @@ export default async function handler(req, res) {
                             const pos = parseInt(posMatch[1]);
                             editor.focus();
                             editor.setSelectionRange(pos, pos + 1);
+                            
                             const fullText = editor.value;
                             const lineNum = fullText.substr(0, pos).split("\\n").length;
-                            editor.scrollTop = (lineNum - 8) * 20;
+                            const lineHeight = 20; 
+                            editor.scrollTop = (lineNum - 10) * lineHeight;
                         }
+                        
                         editor.classList.add('json-error-highlight');
                         return false; 
                     }
@@ -367,11 +356,7 @@ export default async function handler(req, res) {
             if (jsonText) {
                 raw[gi] = jsonText;
                 render();
-                Swal.fire({ 
-                    toast: true, position: 'top', icon: 'success', 
-                    title: '修改已暂存', showConfirmButton: false, timer: 1500,
-                    background: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#333'
-                });
+                Swal.fire({ icon: 'success', title: '修改已暂存', timer: 1000, showConfirmButton: false });
             }
         }
 

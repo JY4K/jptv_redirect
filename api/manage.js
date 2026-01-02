@@ -308,7 +308,7 @@ export default async function handler(req, res) {
                 html: \`
                     <div class="text-left">
                         <p class="text-xs opacity-60 mb-2">保存时若格式错误，系统将自动定位并红色高亮错误位置。</p>
-                        <textarea id="group-json-editor" class="w-full h-[550px] p-4 text-xs font-mono border rounded bg-transparent outline-none focus:ring-1 ring-blue-500/50 transition-all" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
+                        <textarea id="group-json-editor" class="w-full h-[500px] p-4 text-xs font-mono border rounded bg-transparent outline-none focus:ring-1 ring-blue-500/50 transition-all" spellcheck="false">\${JSON.stringify(groupData, null, 2)}</textarea>
                     </div>
                 \`,
                 showCancelButton: true,

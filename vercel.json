@@ -14,6 +14,8 @@
     { "source": "/ipv6.m3u", "destination": "/api/m3u" },
     { "source": "/ipv6.txt", "destination": "/api/txt" },
     { "source": "/", "destination": "/api/manage" },
+    {"source": "/:token/ipv6.m3u","destination": "/api/manage?token=:token&format=m3u"},
+    {"source": "/:token/ipv6.txt","destination": "/api/manage?token=:token&format=txt"},
     { "source": "/:token", "destination": "/api/manage?token=:token" }
   ]
 }

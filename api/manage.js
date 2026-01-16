@@ -3,7 +3,7 @@ import config from '../utils/config.js';
 import fetch from 'node-fetch';
 
 /**
- * 格式化 M3U 内容
+ * 格式化 M3U 内容 (支持多 URL)
  */
 function generateM3U(channels) {
     let m3u = "#EXTM3U\n";
@@ -20,7 +20,7 @@ function generateM3U(channels) {
 }
 
 /**
- * 格式化 TXT 内容
+ * 格式化 TXT 内容 (支持多 URL)
  */
 function generateTXT(channels) {
     let txt = "";
@@ -43,12 +43,7 @@ export default async function handler(req, res) {
     const isAuth = token === config.adminToken;
     const currentVersion = config.currentVersion;
 
-    // 1. 权限校验
-    if (!isAuth) {
-        return res.status(401).send('<h1>401 Unauthorized</h1><p>Token 错误或缺失。</p>');
-    }
-
-    // 获取数据
+    // 获取数据源
     let channels = [];
     try {
         channels = getChannels();
@@ -56,22 +51,21 @@ export default async function handler(req, res) {
         console.error("Data load error:", e);
     }
 
-    // 2. 处理 M3U / TXT 直接访问请求 (支持 path 或 query 参数)
-    const isM3U = url.includes('ipv6.m3u') || query.format === 'm3u';
-    const isTXT = url.includes('ipv6.txt') || query.format === 'txt';
+    // --- 1. 处理 M3U / TXT 纯文本访问 (仅限管理员 Token) ---
+    const isM3UReq = url.includes('ipv6.m3u') || query.format === 'm3u';
+    const isTXTReq = url.includes('ipv6.txt') || query.format === 'txt';
 
-    if (isM3U) {
+    if (isM3UReq || isTXTReq) {
+        if (!isAuth) return res.status(401).send('Unauthorized: Invalid Admin Token');
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.send(generateM3U(channels));
-    }
-    if (isTXT) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.send(generateTXT(channels));
+        return res.send(isM3UReq ? generateM3U(channels) : generateTXT(channels));
     }
 
-    // 3. 处理数据保存 (POST)
+    // --- 2. 处理管理员数据保存 (POST) ---
     if (method === 'POST') {
+        if (!isAuth) return res.status(401).json({ error: '无权操作' });
         let { newData } = req.body;
+
         // 数据清洗
         if (Array.isArray(newData)) {
             newData = newData.map(g => ({
@@ -85,15 +79,13 @@ export default async function handler(req, res) {
         }
 
         const { projectId, token: vToken } = config.platform;
-        if (!projectId || !vToken) return res.status(500).json({ error: '未配置 Vercel API 环境变量' });
+        if (!projectId || !vToken) return res.status(500).json({ error: '未配置 Vercel 环境变量' });
 
         try {
             const commonHeaders = { 'Authorization': `Bearer ${vToken}`, 'Content-Type': 'application/json' };
-            // 获取项目信息以触发布署
             const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers: commonHeaders });
             const projectData = await projectRes.json();
 
-            // 更新环境变量
             const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers: commonHeaders });
             const listData = await listRes.json();
             const targetEnvIds = listData.envs ? listData.envs.filter(e => e.key === 'CHANNELS_DATA').map(e => e.id) : [];
@@ -103,39 +95,24 @@ export default async function handler(req, res) {
             }
 
             await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
-                method: 'POST',
-                headers: commonHeaders,
-                body: JSON.stringify({
-                    key: 'CHANNELS_DATA',
-                    value: JSON.stringify(newData),
-                    type: 'encrypted',
-                    target: ['production', 'preview', 'development']
-                })
+                method: 'POST', headers: commonHeaders,
+                body: JSON.stringify({ key: 'CHANNELS_DATA', value: JSON.stringify(newData), type: 'encrypted', target: ['production', 'preview', 'development'] })
             });
 
-            // 触发布署
             await fetch(`https://api.vercel.com/v13/deployments`, {
-                method: 'POST',
-                headers: commonHeaders,
+                method: 'POST', headers: commonHeaders,
                 body: JSON.stringify({
-                    name: 'jptv-update',
-                    project: projectId,
-                    target: 'production',
-                    gitSource: {
-                        type: projectData.link.type,
-                        repoId: projectData.link.repoId,
-                        ref: projectData.targets?.production?.gitBranch || 'main'
-                    }
+                    name: 'jptv-update', project: projectId, target: 'production',
+                    gitSource: { type: projectData.link.type, repoId: projectData.link.repoId, ref: projectData.targets?.production?.gitBranch || 'main' }
                 })
             });
-
             return res.json({ success: true });
         } catch (e) {
             return res.status(500).json({ error: e.message });
         }
     }
 
-    // 4. 渲染管理页面 (UI)
+    // --- 3. 渲染界面 (支持管理员模式与只读模式) ---
     const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -156,6 +133,7 @@ export default async function handler(req, res) {
         .theme-dark .glass-panel { background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(20px); }
         .theme-dark .card { background: #1e293b; border: 1px solid #334155; }
         .card { cursor: pointer; transition: all 0.2s ease; height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; position: relative; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         .channel-logo { height: 64px; width: auto; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); pointer-events: none; }
         .dragging { opacity: 0.4; border: 2px dashed #3b82f6 !important; }
         .drag-over { border: 2px solid #3b82f6 !important; transform: scale(1.02); }
@@ -172,7 +150,7 @@ export default async function handler(req, res) {
                     <h1 class="text-2xl font-bold">JPTV 控制台</h1>
                     <div class="flex gap-2 text-xs font-mono mt-1 opacity-70">
                         <span id="version-display">v${currentVersion}</span>
-                        <span class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded">管理员</span>
+                        ${isAuth ? '<span class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded">管理员</span>' : '<span class="px-2 py-0.5 bg-gray-500/20 text-gray-500 rounded">只读模式</span>'}
                     </div>
                 </div>
             </div>
@@ -180,12 +158,14 @@ export default async function handler(req, res) {
                 <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-current/10 hover:bg-current/20 flex items-center justify-center transition">
                     <i class="fas fa-sun" id="themeIcon"></i>
                 </button>
+                
+                ${isAuth ? `
                 <div class="flex items-center gap-2 bg-black/5 dark:bg-white/5 p-1 rounded-xl">
-                    <a href="/api/manage?token=${token}&format=m3u" target="_blank" class="px-3 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-xs font-medium" title="预览 M3U 订阅内容">
-                        <i class="fas fa-list"></i> M3U 链接
+                    <a href="/api/manage?token=${token}&format=m3u" target="_blank" class="px-3 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-xs font-medium">
+                        <i class="fas fa-list"></i> M3U 订阅
                     </a>
-                    <a href="/api/manage?token=${token}&format=txt" target="_blank" class="px-3 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-xs font-medium" title="预览 TXT 订阅内容">
-                        <i class="fas fa-file-lines"></i> TXT 链接
+                    <a href="/api/manage?token=${token}&format=txt" target="_blank" class="px-3 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-xs font-medium">
+                        <i class="fas fa-file-lines"></i> TXT 订阅
                     </a>
                     <div class="w-px h-4 bg-current/10 mx-1"></div>
                     <button onclick="exportData()" class="px-3 py-2 hover:bg-current/10 rounded-lg transition flex items-center gap-2 text-xs font-medium"><i class="fas fa-download"></i> 备份</button>
@@ -194,22 +174,30 @@ export default async function handler(req, res) {
                 <button onclick="saveData()" id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition flex items-center gap-2">
                     <i class="fas fa-cloud-upload-alt"></i> 保存并部署
                 </button>
+                ` : `
+                <div class="flex gap-2">
+                    <a href="/ipv6.m3u" target="_blank" class="px-5 py-2 rounded-xl font-bold bg-current/10 hover:bg-current/20 transition flex items-center gap-2 text-sm"><i class="fas fa-file-code"></i> 公开 M3U</a>
+                    <a href="/ipv6.txt" target="_blank" class="px-5 py-2 rounded-xl font-bold bg-current/10 hover:bg-current/20 transition flex items-center gap-2 text-sm"><i class="fas fa-file-alt"></i> 公开 TXT</a>
+                </div>
+                `}
             </div>
         </header>
 
         <div id="app" class="space-y-8 pb-12"></div>
         
+        ${isAuth ? `
         <div class="py-10 text-center">
              <button onclick="addGroup()" class="px-8 py-4 rounded-2xl border-2 border-dashed border-current/20 hover:border-blue-500 text-current/50 hover:text-blue-500 transition font-bold flex items-center gap-2 mx-auto text-lg">
                 <i class="fas fa-plus-circle"></i> 添加新分组
             </button>
         </div>
+        ` : ''}
     </div>
 
     <script>
         let raw = ${JSON.stringify(channels)};
+        const isAuth = ${isAuth};
         const currentToken = "${token}";
-        const currentVer = "${currentVersion}";
         const repoApi = "${config.repoApiUrl}";
         let dragSrc = null;
 
@@ -226,7 +214,7 @@ export default async function handler(req, res) {
         }
         applyTheme();
 
-        // 渲染核心逻辑
+        // 渲染页面
         function render() {
             const app = document.getElementById('app');
             if (!raw.length) { app.innerHTML = '<div class="text-center py-20 opacity-50">暂无数据</div>'; return; }
@@ -234,28 +222,33 @@ export default async function handler(req, res) {
             app.innerHTML = raw.map((g, gi) => \`
                 <div class="glass-panel rounded-2xl p-6">
                     <div class="flex items-center justify-between mb-6 border-b border-current/10 pb-4">
-                        <input class="text-xl font-bold bg-transparent outline-none border-b-2 border-transparent focus:border-blue-500 transition w-full" 
-                               value="\${g.group}" onchange="raw[\${gi}].group=this.value" placeholder="分组名称">
+                        \${isAuth 
+                            ? \`<input class="text-xl font-bold bg-transparent outline-none border-b-2 border-transparent focus:border-blue-500 transition w-full" 
+                                      value="\${g.group}" onchange="raw[\${gi}].group=this.value" placeholder="分组名称">\`
+                            : \`<h2 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-layer-group text-blue-500"></i> \${g.group}</h2>\`
+                        }
+                        \${isAuth ? \`
                         <div class="flex items-center gap-1">
                             <button onclick="moveGroup(\${gi}, -1)" class="p-2 text-blue-400 \${gi===0?'opacity-20':''}"><i class="fas fa-arrow-up"></i></button>
                             <button onclick="moveGroup(\${gi}, 1)" class="p-2 text-blue-400 \${gi===raw.length-1?'opacity-20':''}"><i class="fas fa-arrow-down"></i></button>
                             <button onclick="deleteGroup(\${gi})" class="text-red-400 p-2"><i class="fas fa-trash-alt"></i></button>
                         </div>
+                        \` : ''}
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-5">
                         \${g.channels.map((ch, ci) => \`
-                            <div class="card rounded-xl" draggable="true" 
-                                 ondragstart="dragStart(event, \${gi}, \${ci})" ondragover="event.preventDefault()" 
-                                 ondragenter="this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')"
-                                 ondrop="dragDrop(event, \${gi}, \${ci})" ondragend="this.classList.remove('dragging')"
-                                 onclick="editChannel(\${gi},\${ci})">
+                            <div class="card rounded-xl" 
+                                 \${isAuth ? \`draggable="true" ondragstart="dragStart(event,\${gi},\${ci})" ondragover="event.preventDefault()" ondrop="dragDrop(event,\${gi},\${ci})"\` : ''}
+                                 onclick="\${isAuth ? \`editChannel(\${gi},\${ci})\` : \`copyLink('\${ch.id}')\`}">
                                 <img src="\${getLogoUrl(ch.logo)}" class="channel-logo" onerror="this.src='/jptv.png'">
                                 <div class="text-center w-full px-2"><h3 class="font-bold text-sm truncate">\${ch.name}</h3></div>
                             </div>
                         \`).join('')}
+                        \${isAuth ? \`
                         <div onclick="addChannel(\${gi})" class="card rounded-xl border-dashed border-2 opacity-50 hover:opacity-100 text-blue-500">
                             <i class="fas fa-plus text-3xl mb-2"></i><span class="font-bold text-sm">添加频道</span>
                         </div>
+                        \` : ''}
                     </div>
                 </div>
             \`).join('');
@@ -266,22 +259,26 @@ export default async function handler(req, res) {
             return logo.startsWith('http') ? logo : 'https://gcore.jsdelivr.net/gh/fanmingming/live/tv/' + logo + '.png';
         }
 
-        // 频道编辑
+        function copyLink(id) {
+            const link = window.location.origin + '/jptv.php?id=' + id;
+            navigator.clipboard.writeText(link);
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: '链接已复制', showConfirmButton: false, timer: 1500 });
+        }
+
+        // 管理员专用函数
         async function editChannel(gi, ci, isNew = false) {
             const ch = raw[gi].channels[ci] || {name:'', id:'', logo:'', url:[]};
             const { value, isDenied } = await Swal.fire({
                 title: isNew ? '添加频道' : '编辑频道',
-                background: currentTheme === 'dark' ? '#1e293b' : '#fff',
-                color: currentTheme === 'dark' ? '#fff' : '#333',
-                html: \`
-                    <div class="space-y-4 text-left">
+                background: currentTheme === 'dark' ? '#1e293b' : '#fff', color: currentTheme === 'dark' ? '#fff' : '#333',
+                html: \`<div class="space-y-4 text-left">
                         <input id="s-name" placeholder="名称" class="w-full p-2 border rounded bg-transparent" value="\${ch.name}">
                         <div class="flex gap-2">
-                            <input id="s-id" placeholder="ID (选填)" class="flex-1 p-2 border rounded bg-transparent" value="\${ch.id}">
-                            <input id="s-logo" placeholder="Logo (选填)" class="flex-1 p-2 border rounded bg-transparent" value="\${ch.logo}">
+                            <input id="s-id" placeholder="ID" class="flex-1 p-2 border rounded bg-transparent" value="\${ch.id}">
+                            <input id="s-logo" placeholder="Logo" class="flex-1 p-2 border rounded bg-transparent" value="\${ch.logo}">
                         </div>
-                        <textarea id="s-url" class="w-full p-2 border rounded bg-transparent font-mono text-xs h-32" placeholder="每行一个 URL">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
-                    </div>\`,
+                        <textarea id="s-url" class="w-full p-2 border rounded bg-transparent font-mono text-xs h-32" placeholder="每行一个URL">\${(Array.isArray(ch.url)?ch.url:[ch.url]).join('\\n')}</textarea>
+                      </div>\`,
                 showDenyButton: !isNew, denyButtonText: '删除', confirmButtonText: '保存', showCancelButton: true,
                 preConfirm: () => {
                     const name = document.getElementById('s-name').value.trim();
@@ -294,7 +291,6 @@ export default async function handler(req, res) {
             else if (isDenied) { raw[gi].channels.splice(ci, 1); render(); }
         }
 
-        // 拖拽
         function dragStart(e, gi, ci) { dragSrc = { gi, ci }; e.target.classList.add('dragging'); }
         function dragDrop(e, tgi, tci) {
             const [item] = raw[dragSrc.gi].channels.splice(dragSrc.ci, 1);
@@ -307,34 +303,28 @@ export default async function handler(req, res) {
         function moveGroup(i, d) { if(raw[i+d]) { [raw[i], raw[i+d]] = [raw[i+d], raw[i]]; render(); } }
         function deleteGroup(i) { Swal.fire({title:'删除分组?', icon:'warning', showCancelButton:true}).then(r => { if(r.isConfirmed) { raw.splice(i, 1); render(); } }); }
 
-        // 数据备份/导入
         function exportData() {
             const blob = new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' });
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-            a.download = \`jptv_backup.json\`; a.click();
+            a.download = "jptv_backup.json"; a.click();
         }
         async function globalImport() {
-            const { value: text } = await Swal.fire({ title: '导入 JSON', input: 'textarea', inputPlaceholder: '粘贴备份内容...' });
+            const { value: text } = await Swal.fire({ title: '导入 JSON', input: 'textarea' });
             if (text) { try { raw = JSON.parse(text); render(); } catch(e) { Swal.fire('解析失败'); } }
         }
 
-        // 保存并部署
         async function saveData() {
             const btn = document.getElementById('saveBtn');
-            const old = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 部署中...';
-            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 部署中...'; btn.disabled = true;
             try {
                 const res = await fetch(\`/api/manage?token=\${currentToken}\`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ newData: raw })
                 });
-                if (res.ok) Swal.fire({ icon: 'success', title: '部署已触发', text: '请等待几分钟后刷新前端页面。' });
+                if (res.ok) Swal.fire({ icon: 'success', title: '部署已触发' });
                 else throw new Error('保存失败');
-            } catch (e) {
-                Swal.fire('错误', e.message, 'error');
-            } finally { btn.innerHTML = old; btn.disabled = false; }
+            } catch (e) { Swal.fire('错误', e.message, 'error'); } 
+            finally { btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> 保存并部署'; btn.disabled = false; }
         }
 
         render();

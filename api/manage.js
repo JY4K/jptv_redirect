@@ -1,6 +1,14 @@
 import { buildLogoUrl, formatChannelTitle, getChannelSources, getChannels, getRequestOrigin, normalizeChannels } from '../utils/helpers.js';
 import config from '../utils/config.js';
 
+const SYSTEM_ENV_KEYS = [
+  { key: 'CHANNELS_DATA', label: '频道数据', description: '频道数据缓存，通常由频道保存功能自动维护。', multiline: true },
+  { key: 'TOKEN', label: 'TOKEN', description: '订阅链接密码。' },
+  { key: 'ADMIN_TOKEN', label: 'ADMIN_TOKEN', description: '管理后台登录密码。' },
+  { key: 'DEPLOY_PLATFROM_TOKEN', label: 'DEPLOY_PLATFROM_TOKEN', description: '用于调用 Vercel API 的访问令牌。' },
+  { key: 'DEPLOY_PLATFROM_PROJECT', label: 'DEPLOY_PLATFROM_PROJECT', description: 'Vercel 项目 ID。' }
+];
+
 function escapeText(value = '') {
   return String(value).replace(/[&<>"']/g, (char) => ({
     '&': '&amp;',
@@ -40,40 +48,67 @@ function generateTXT(channels) {
   return lines.join('\n');
 }
 
-async function saveToVercel(newData) {
-  const { projectId, token } = config.platform;
-  if (!projectId || !token) throw new Error('未配置 Vercel 环境变量 DEPLOY_PLATFROM_PROJECT / DEPLOY_PLATFROM_TOKEN');
+function getVercelHeaders(token) {
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
 
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+async function getVercelProject(projectId, token) {
+  const headers = getVercelHeaders(token);
   const projectRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}`, { headers });
   const projectData = await projectRes.json();
   if (!projectRes.ok) throw new Error(projectData.error?.message || '读取 Vercel 项目信息失败');
+  return { projectData, headers };
+}
 
-  const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, { headers });
-  const listData = await listRes.json();
-  if (!listRes.ok) throw new Error(listData.error?.message || '读取 Vercel 环境变量失败');
+async function listVercelEnvironments(projectId, token, decrypt = false) {
+  const query = decrypt ? '?decrypt=1' : '';
+  const response = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env${query}`, {
+    headers: getVercelHeaders(token)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message || '读取 Vercel 环境变量失败');
+  return data.envs || [];
+}
 
-  const targetEnvIds = listData.envs ? listData.envs.filter((env) => env.key === 'CHANNELS_DATA').map((env) => env.id) : [];
-  for (const id of targetEnvIds) {
+async function saveEnvironmentVariables(values) {
+  const { projectId, token } = config.platform;
+  if (!projectId || !token) throw new Error('未配置 Vercel 环境变量 DEPLOY_PLATFROM_PROJECT / DEPLOY_PLATFROM_TOKEN');
+
+  const envs = await listVercelEnvironments(projectId, token);
+  const headers = getVercelHeaders(token);
+  const allowedKeys = new Set(SYSTEM_ENV_KEYS.map((item) => item.key));
+  const entries = Object.entries(values || {}).filter(([key, value]) => allowedKeys.has(key) && typeof value === 'string' && value.trim());
+
+  for (const [key] of entries) {
+    const targetEnvIds = envs.filter((env) => env.key === key).map((env) => env.id);
+    for (const id of targetEnvIds) {
     const deleteRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${id}`, { method: 'DELETE', headers });
     if (!deleteRes.ok) {
       const deleteData = await deleteRes.json().catch(() => ({}));
-      throw new Error(deleteData.error?.message || '删除旧频道环境变量失败');
+        throw new Error(deleteData.error?.message || `删除旧环境变量 ${key} 失败`);
+      }
     }
-  }
 
-  const envRes = await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
+    const envRes = await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      key: 'CHANNELS_DATA',
-      value: JSON.stringify(newData),
+        key,
+        value: values[key].trim(),
       type: 'encrypted',
       target: ['production', 'preview', 'development']
     })
-  });
-  const envData = await envRes.json();
-  if (!envRes.ok) throw new Error(envData.error?.message || '保存频道数据失败');
+    });
+    const envData = await envRes.json();
+    if (!envRes.ok) throw new Error(envData.error?.message || `保存环境变量 ${key} 失败`);
+  }
+}
+
+async function deployToVercel() {
+  const { projectId, token } = config.platform;
+  if (!projectId || !token) throw new Error('未配置 Vercel 环境变量 DEPLOY_PLATFROM_PROJECT / DEPLOY_PLATFROM_TOKEN');
+
+  const { projectData, headers } = await getVercelProject(projectId, token);
 
   const deployRes = await fetch('https://api.vercel.com/v13/deployments', {
     method: 'POST',
@@ -96,6 +131,28 @@ async function saveToVercel(newData) {
     deploymentId: deployData.id || '',
     deploymentUrl: deployData.url || ''
   };
+}
+
+async function saveToVercel(newData) {
+  await saveEnvironmentVariables({ CHANNELS_DATA: JSON.stringify(newData) });
+  return deployToVercel();
+}
+
+async function readEnvironmentVariables() {
+  const { projectId, token } = config.platform;
+  if (!projectId || !token) throw new Error('未配置 Vercel 环境变量 DEPLOY_PLATFROM_PROJECT / DEPLOY_PLATFROM_TOKEN');
+
+  const envs = await listVercelEnvironments(projectId, token, true);
+  return SYSTEM_ENV_KEYS.reduce((result, item) => {
+    const matches = envs.filter((env) => env.key === item.key);
+    const value = matches.find((env) => typeof env.value === 'string' && env.value)?.value || '';
+    result[item.key] = {
+      configured: matches.length > 0,
+      value,
+      targets: [...new Set(matches.flatMap((env) => env.target || []))]
+    };
+    return result;
+  }, {});
 }
 
 export default async function handler(req, res) {

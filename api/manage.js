@@ -61,7 +61,7 @@ async function getVercelProject(projectId, token) {
 }
 
 async function listVercelEnvironments(projectId, token, decrypt = false) {
-  const query = decrypt ? '?decrypt=1' : '';
+  const query = decrypt ? '?decrypt=true' : '';
   const response = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env${query}`, {
     headers: getVercelHeaders(token)
   });

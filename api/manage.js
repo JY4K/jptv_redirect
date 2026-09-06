@@ -99,7 +99,7 @@ async function saveEnvironmentVariables(values) {
       body: JSON.stringify({
         key,
         value,
-        type: 'encrypted',
+        type: 'plain',
         target: ['production', 'preview', 'development']
       })
     });
@@ -1073,7 +1073,7 @@ export default async function handler(req, res) {
       const inputClass = 'w-full p-3 border rounded-lg bg-transparent font-mono text-xs';
       const control = definition.multiline
         ? \`<textarea id="env-\${definition.key}" class="\${inputClass} h-36" spellcheck="false">\${html(value)}</textarea>\`
-        : \`<div class="flex gap-2"><input id="env-\${definition.key}" type="password" class="\${inputClass}" value="\${html(value)}" autocomplete="off"><button type="button" class="icon-btn shrink-0" onclick="toggleEnvironmentSecret('env-\${definition.key}', this)" title="显示或隐藏"><i class="fas fa-eye"></i></button></div>\`;
+        : \`<input id="env-\${definition.key}" type="text" class="\${inputClass}" value="\${html(value)}" autocomplete="off">\`;
       return \`<div class="text-left space-y-2 pb-4 border-b border-current/10 last:border-0">
         <div class="flex items-start justify-between gap-3">
           <div><label for="env-\${definition.key}" class="font-mono text-sm font-bold">\${definition.key}</label><p class="text-xs opacity-65 mt-1">\${definition.description}</p></div>
@@ -1082,14 +1082,6 @@ export default async function handler(req, res) {
         \${control}
         <p class="text-[11px] opacity-55">生效环境：\${html(targetText)}</p>
       </div>\`;
-    }
-
-    function toggleEnvironmentSecret(id, button) {
-      const input = document.getElementById(id);
-      if (!input) return;
-      const visible = input.type === 'text';
-      input.type = visible ? 'password' : 'text';
-      button.innerHTML = visible ? '<i class="fas fa-eye"></i>' : '<i class="fas fa-eye-slash"></i>';
     }
 
     async function requestEnvironment(action, payload = {}) {

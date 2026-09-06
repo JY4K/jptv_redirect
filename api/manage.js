@@ -77,9 +77,11 @@ async function saveEnvironmentVariables(values) {
   const envs = await listVercelEnvironments(projectId, token);
   const headers = getVercelHeaders(token);
   const allowedKeys = new Set(SYSTEM_ENV_KEYS.map((item) => item.key));
-  const entries = Object.entries(values || {}).filter(([key, value]) => allowedKeys.has(key) && typeof value === 'string' && value.trim());
+  const entries = SYSTEM_ENV_KEYS
+    .map(({ key }) => [key, typeof values?.[key] === 'string' ? values[key].trim() : ''])
+    .filter(([key]) => allowedKeys.has(key));
 
-  for (const [key] of entries) {
+  for (const [key, value] of entries) {
     const targetEnvIds = envs.filter((env) => env.key === key).map((env) => env.id);
     for (const id of targetEnvIds) {
     const deleteRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${id}`, { method: 'DELETE', headers });
@@ -89,15 +91,17 @@ async function saveEnvironmentVariables(values) {
       }
     }
 
+    if (!value) continue;
+
     const envRes = await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
         key,
-        value: values[key].trim(),
-      type: 'encrypted',
-      target: ['production', 'preview', 'development']
-    })
+        value,
+        type: 'encrypted',
+        target: ['production', 'preview', 'development']
+      })
     });
     const envData = await envRes.json();
     if (!envRes.ok) throw new Error(envData.error?.message || `保存环境变量 ${key} 失败`);
@@ -187,6 +191,15 @@ export default async function handler(req, res) {
     if (!isAuth) return res.status(401).json({ error: '无权操作' });
 
     try {
+      if (req.body?.action === 'read-environment') {
+        return res.json({ success: true, variables: await readEnvironmentVariables() });
+      }
+      if (req.body?.action === 'save-environment') {
+        const values = req.body?.values || {};
+        await saveEnvironmentVariables(values);
+        const deployment = await deployToVercel();
+        return res.json({ success: true, deployment });
+      }
       const newData = normalizeChannels(req.body?.newData || []);
       const deployment = await saveToVercel(newData);
       return res.json({ success: true, deployment });
@@ -317,6 +330,10 @@ export default async function handler(req, res) {
     .format-choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; }
     .format-choice label { cursor: pointer; border: 1px solid var(--glass-border); border-radius: 0.75rem; padding: 0.75rem; display: flex; align-items: center; gap: 0.5rem; background: var(--glass-bg); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); box-shadow: inset 0 1px 0 var(--glass-highlight); }
     .format-choice input { accent-color: #2563eb; }
+    .admin-nav { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }
+    .admin-nav button { min-height: 40px; border-radius: 0.75rem; padding: 0.55rem 0.9rem; display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 700; border: 1px solid var(--glass-border); background: rgba(148, 163, 184, 0.12); transition: all 0.15s ease; }
+    .admin-nav button:hover { color: #2563eb; background: rgba(37, 99, 235, 0.12); border-color: rgba(37, 99, 235, 0.28); transform: translateY(-1px); }
+    .admin-nav button.active { color: #2563eb; background: rgba(37, 99, 235, 0.14); }
     .swal2-popup { background: var(--glass-bg-strong) !important; color: inherit !important; border: 1px solid var(--glass-border) !important; backdrop-filter: blur(24px) saturate(150%) !important; -webkit-backdrop-filter: blur(24px) saturate(150%) !important; box-shadow: 0 24px 70px var(--glass-shadow), inset 0 1px 0 var(--glass-highlight) !important; }
     .swal2-close.channel-modal-close { width: 34px !important; height: 34px !important; min-width: 34px !important; min-height: 34px !important; top: 0.9rem !important; right: 0.9rem !important; border-radius: 0.65rem !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; background: rgba(148, 163, 184, 0.14) !important; border: 1px solid var(--glass-border) !important; color: #64748b !important; font-size: 1rem !important; line-height: 1 !important; transition: all 0.15s ease !important; }
     .swal2-close.channel-modal-close:hover { background: rgba(239, 68, 68, 0.14) !important; color: #dc2626 !important; transform: translateY(-1px); }
@@ -393,6 +410,11 @@ export default async function handler(req, res) {
       </div>
     </header>
 
+    ${isAuth ? `
+    <div class="glass-panel rounded-2xl p-3 mb-6 admin-nav" aria-label="管理设置">
+      <button type="button" onclick="scrollToChannels()" class="active"><i class="fas fa-sliders"></i> 频道设置</button>
+      <button type="button" onclick="openEnvironmentDialog()"><i class="fas fa-server"></i> 系统配置</button>
+    </div>` : ''}
     <div id="app" class="space-y-8 pb-12"></div>
     ${isAuth ? `
     <div class="py-10 text-center">
@@ -425,6 +447,7 @@ export default async function handler(req, res) {
     const fallbackLogo = ${JSON.stringify(fallbackLogo)};
     let dragSrc = null;
     let sourceState = { open: null, format: 'json' };
+    const environmentDefinitions = ${JSON.stringify(SYSTEM_ENV_KEYS)};
     let currentTheme = localStorage.getItem('jptv_theme') || 'light';
 
     function normalizeSources(value) {
@@ -1039,6 +1062,94 @@ export default async function handler(req, res) {
       channel.sources.push(item.source);
     }
 
+    function scrollToChannels() {
+      document.getElementById('app')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function environmentFieldHtml(definition, item = {}) {
+      const value = item.value || '';
+      const status = item.configured ? '已配置' : '未配置';
+      const targetText = item.targets?.length ? item.targets.join(' / ') : '全部环境';
+      const inputClass = 'w-full p-3 border rounded-lg bg-transparent font-mono text-xs';
+      const control = definition.multiline
+        ? \`<textarea id="env-\${definition.key}" class="\${inputClass} h-36" spellcheck="false">\${html(value)}</textarea>\`
+        : \`<div class="flex gap-2"><input id="env-\${definition.key}" type="password" class="\${inputClass}" value="\${html(value)}" autocomplete="off"><button type="button" class="icon-btn shrink-0" onclick="toggleEnvironmentSecret('env-\${definition.key}', this)" title="显示或隐藏"><i class="fas fa-eye"></i></button></div>\`;
+      return \`<div class="text-left space-y-2 pb-4 border-b border-current/10 last:border-0">
+        <div class="flex items-start justify-between gap-3">
+          <div><label for="env-\${definition.key}" class="font-mono text-sm font-bold">\${definition.key}</label><p class="text-xs opacity-65 mt-1">\${definition.description}</p></div>
+          <span class="text-[11px] whitespace-nowrap px-2 py-1 rounded bg-current/10">\${status}</span>
+        </div>
+        \${control}
+        <p class="text-[11px] opacity-55">生效环境：\${html(targetText)}</p>
+      </div>\`;
+    }
+
+    function toggleEnvironmentSecret(id, button) {
+      const input = document.getElementById(id);
+      if (!input) return;
+      const visible = input.type === 'text';
+      input.type = visible ? 'password' : 'text';
+      button.innerHTML = visible ? '<i class="fas fa-eye"></i>' : '<i class="fas fa-eye-slash"></i>';
+    }
+
+    async function requestEnvironment(action, payload = {}) {
+      const response = await fetch('/api/manage?token=' + encodeURIComponent(currentToken), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...payload })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || '系统配置操作失败');
+      return result;
+    }
+
+    async function openEnvironmentDialog() {
+      if (!isAuth) return;
+      Swal.fire({
+        title: '正在读取系统配置',
+        html: '正在从 Vercel 读取环境变量...',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        const result = await requestEnvironment('read-environment');
+        const { value } = await Swal.fire({
+          title: '系统配置',
+          width: 820,
+          background: currentTheme === 'dark' ? '#1e293b' : '#fff',
+          color: currentTheme === 'dark' ? '#fff' : '#333',
+          html: \`<div class="space-y-4 text-left max-h-[60vh] overflow-y-auto pr-1">\${environmentDefinitions.map((definition) => environmentFieldHtml(definition, result.variables?.[definition.key])).join('')}</div>\`,
+          showCancelButton: true,
+          confirmButtonText: '保存并部署',
+          cancelButtonText: '取消',
+          preConfirm: () => {
+            const values = Object.fromEntries(environmentDefinitions.map((definition) => [
+              definition.key,
+              document.getElementById('env-' + definition.key)?.value || ''
+            ]));
+            const missing = environmentDefinitions.filter((definition) => !values[definition.key].trim()).map((definition) => definition.key);
+            if (missing.length) return Swal.showValidationMessage('请填写：' + missing.join('、'));
+            return values;
+          }
+        });
+        if (!value) return;
+
+        Swal.fire({
+          title: '正在保存系统配置',
+          html: '正在更新 Vercel 环境变量并触发部署...',
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          didOpen: () => Swal.showLoading()
+        });
+        await requestEnvironment('save-environment', { values: value });
+        Swal.fire({ icon: 'success', title: '系统配置已保存', html: '环境变量已更新，并已触发 Vercel 部署。', confirmButtonText: '完成' });
+      } catch (error) {
+        Swal.fire('系统配置失败', error.message, 'error');
+      }
+    }
+
     async function saveData() {
       const btn = document.getElementById('saveBtn');
       const originalHtml = btn.innerHTML;
@@ -1084,7 +1195,9 @@ export default async function handler(req, res) {
       globalImport,
       moveGroup,
       openExportDialog,
+      openEnvironmentDialog,
       saveData,
+      scrollToChannels,
       switchSourceFormat,
       syncSourceScroll,
       toggleSource,
